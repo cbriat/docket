@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docket</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+  --accent: #2b59c3; --accent-text: #ffffff; --danger: #b42318; --ok: #157347; --warn: #b54708;
+  --chip: #eef1f6; --sel: #e8efff; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 4px 16px rgba(16,24,40,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b2029; --text: #e6e8ec; --muted: #98a2b3; --line: #2c3340;
+    --accent: #6d93f2; --accent-text: #0d1220; --danger: #f97066; --ok: #4bc98a; --warn: #f5a65b;
+    --chip: #262d39; --sel: #22304d; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0; font-weight: 650; }
+header .ctx { color: var(--muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px; padding-bottom: 110px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 20px; }
+.login { max-width: 420px; margin: 48px auto; }
+.login h2 { margin: 0 0 4px; font-size: 18px; }
+label { display: block; font-weight: 550; margin: 12px 0 4px; }
+label.inline { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; margin: 6px 16px 0 0; }
+input[type=text], input[type=password], input[type=search], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
+textarea { min-height: 180px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+button { font: inherit; padding: 7px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+button.link { border: 0; background: none; color: var(--accent); padding: 0; }
+button:disabled { opacity: .5; cursor: default; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.err { color: var(--danger); margin-top: 10px; white-space: pre-wrap; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar input[type=search] { width: 260px; }
+.toolbar select { width: auto; }
+.spacer { flex: 1; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); font-weight: 600; background: var(--panel); }
+tr.paper td { background: var(--chip); font-weight: 600; }
+button.tog { width: 22px; height: 22px; padding: 0; line-height: 20px; font-size: 14px; font-weight: 600; margin-right: 6px; vertical-align: 1px; }
+tr.paper .meta { font-weight: 400; color: var(--muted); }
+tr.review.selected td { background: var(--sel); }
+tr.round td { font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 10px; }
+tr.review.old td { color: var(--muted); }
+th.c-fold, th.c-sel { width: 30px; padding-right: 0; }
+tr.paper td:nth-child(-n+2), tr.review td:nth-child(-n+2) { padding-right: 0; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--chip); }
+.s-confirmed { color: var(--accent); } .s-received, .s-submitted { color: var(--ok); } .s-canceled, .s-declined { color: var(--muted); }
+table.asg th:first-child { width: auto; }
+a { color: var(--accent); }
+header select { width: auto; max-width: 260px; padding: 5px 8px; }
+.viewer { background: var(--warn); color: #fff; font-weight: 650; font-size: 12px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.chip { display: inline-block; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-left: 6px; }
+button.chip { cursor: pointer; background: var(--panel); color: var(--text); }
+.chip.active { border-color: var(--accent); color: var(--accent); } .chip.problem { border-color: var(--danger); color: var(--danger); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+.list { border: 1px solid var(--line); border-radius: 8px; max-height: 340px; overflow: auto; }
+.list .li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.list .li:last-child { border-bottom: 0; }
+.list .li .grow { flex: 1; min-width: 0; }
+.list .li button { padding: 2px 8px; font-size: 12.5px; }
+.num { width: 70px !important; }
+.log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; color: var(--muted); max-height: 160px; overflow: auto; }
+.overdue { color: var(--danger); font-weight: 600; }
+.nowrap { white-space: nowrap; }
+#bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 12px 20px; display: none; gap: 10px; align-items: center; box-shadow: 0 -4px 16px rgba(0,0,0,.06); z-index: 6; }
+#bar.show { display: flex; }
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(820px, 94vw); background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+dialog.wide { width: min(1240px, 96vw); }
+.pv { position: sticky; top: 0; }
+dialog::backdrop { background: rgba(10,14,22,.45); }
+.dlg-head { padding: 16px 20px; border-bottom: 1px solid var(--line); font-weight: 650; font-size: 16px; }
+.dlg-body { padding: 4px 20px 16px; max-height: 70vh; overflow: auto; }
+.dlg-foot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.item pre { white-space: pre-wrap; margin: 8px 0 0; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.item.bad { border-color: var(--danger); } .item.good { border-color: var(--ok); }
+.item .st { font-weight: 600; } .item.good .st { color: var(--ok); } .item.bad .st { color: var(--danger); }
+.note { background: var(--chip); border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+#busy { width: min(460px, 90vw); padding: 18px 22px; }
+#busy[open] { display: flex; gap: 14px; align-items: flex-start; }
+#busy::backdrop { background: rgba(10,14,22,.35); }
+#busy .spin { flex: none; width: 18px; height: 18px; margin-top: 2px; border: 2px solid var(--line); border-top-color: var(--accent, #6b8cff); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+code { background: var(--chip); padding: 0 4px; border-radius: 4px; }
+#menu { position: fixed; z-index: 30; min-width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 4px; }
+#menu button { display: block; width: 100%; text-align: left; border: 0; border-radius: 5px; padding: 6px 10px; background: none; }
+#menu button:hover:not(:disabled) { background: var(--sel); }
+#menu button.dangerText { color: var(--danger); }
+#menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+tr.paper, tr.review, table.asg tbody tr { cursor: context-menu; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 12px 0; }
+dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; }
+.qa { margin: 10px 0 0; } .qa .q { color: var(--muted); font-size: 12.5px; } .qa .a { white-space: pre-wrap; overflow-wrap: anywhere; }
+.hidden { display: none !important; }
+/* A window of the app showing one dialog (picker, message, reviews…). */
+body.sub > header, body.sub > main, body.sub #bar { display: none; }
+body.sub #dlg { width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+body.sub #dlg[open] { display: flex; flex-direction: column; }
+body.sub #dlg::backdrop { background: var(--bg); }
+body.sub .dlg-body { flex: 1; max-height: none; }
+body.sub #aQueue, body.sub #aCands { max-height: calc(100vh - 430px); min-height: 220px; }
+#ask { width: min(460px, 90vw); }
+.files button { margin: 6px 8px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Docket</h1>
+  <span id="viewerBadge" class="viewer hidden" title="Only viewing requests are sent to PaperPlaza; sending, canceling and changing are blocked">Viewer mode</span>
+  <div class="ctx" id="ctx"></div>
+  <select id="hdrJournal" class="hidden" title="Journal"></select>
+  <select id="hdrRole" class="hidden" title="Role"></select>
+  <button id="btnReload" class="hidden">Reload from PaperPlaza</button>
+  <button id="btnLogout" class="hidden">Log out</button>
+</header>
+
+<main>
+  <section id="vLogin" class="card login hidden">
+    <h2>Log in to PaperPlaza</h2>
+    <div class="muted small">Same PIN/e-mail and password as on the site itself. Each site has its own accounts.</div>
+    <label for="site">Site</label>
+    <select id="site"></select>
+    <label for="loginId">PIN, login alias or e-mail</label>
+    <input id="loginId" type="text" autocomplete="username">
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <label class="inline"><input id="remember" type="checkbox"> Save the password in the macOS Keychain</label>
+    <label class="inline"><input id="viewerMode" type="checkbox"> Viewer mode — look only: nothing can be sent, canceled or changed</label>
+    <div class="row" style="margin-top:16px">
+      <button class="primary" id="btnLogin">Log in</button>
+      <button class="link small hidden" id="btnForget">Forget the saved password</button>
+    </div>
+    <div class="err" id="loginErr"></div>
+  </section>
+
+  <section id="vPick" class="card login hidden">
+    <h2>Choose a workspace</h2>
+    <label for="journal">Journal</label>
+    <select id="journal"></select>
+    <label for="role">Role</label>
+    <select id="role" disabled></select>
+    <div class="row" style="margin-top:16px"><button class="primary" id="btnPick">Open</button><button id="btnPickBack" class="hidden">Back</button></div>
+    <div class="err" id="pickErr"></div>
+  </section>
+
+  <section id="vMain" class="hidden">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search reviewer, paper, title…">
+      <select id="fState"></select>
+      <label class="inline" style="margin:0"><input type="checkbox" id="includeAll"> <span id="includeAllLabel">Papers with any status</span></label>
+      <span class="spacer"></span>
+      <span class="muted" id="counts"></span>
+      <button id="btnSched" class="hidden">Automatic invitations</button>
+      <button id="btnCsv">Export CSV</button>
+    </div>
+    <div id="warnings" class="note err small hidden"></div>
+    <div id="tableWrap"></div>
+  </section>
+</main>
+
+<div id="bar">
+  <strong id="selCount"></strong>
+  <button class="link" id="btnClear">Clear selection</button>
+  <span class="spacer"></span>
+  <span class="muted small hidden" id="barViewer">Viewer mode: actions are disabled</span>
+  <button class="primary" data-act="contact">Message…</button>
+  <button data-act="extend">Extend deadline…</button>
+  <button class="danger" data-act="cancel">Cancel requests…</button>
+</div>
+
+<dialog id="ask"><div class="dlg-body" id="askMsg" style="padding-top:18px; white-space:pre-wrap"></div><div class="dlg-foot"><button id="askNo">Cancel</button><button class="primary" id="askYes">OK</button></div></dialog>
+<dialog id="dlg"><div class="dlg-head" id="dlgHead"></div><div class="dlg-body" id="dlgBody"></div><div class="dlg-foot" id="dlgFoot"></div></dialog>
+<div id="menu" class="hidden"></div>
+<dialog id="busy"><div class="spin"></div><div><div id="busyMsg">Working…</div>
+  <div class="small muted" style="margin-top:6px">Still working: <span id="busyTime">0 s</span>. Please wait; the window cannot be closed until this is finished.</div>
+  <div class="small err hidden" id="busyNoClose" style="margin:6px 0 0">Wait until this is finished before closing the window.</div></div></dialog>
+
+<script>
+const TOKEN = "__DOCKET_TOKEN__";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let S = {}; let papers = []; let reviews = []; const selected = new Set();
+let mode = ""; let assignments = []; let schedules = [];
+// Papers shown folded (reviews hidden), remembered with the settings per journal.
+let folded = new Set();
+function saveFolded() { api("fold", { ids: [...folded] }).catch(() => {}); }
+const FILTERS = {
+  editor: [["all", "All reviews"], ["accepted", "Accepted or received"], ["open", "Open (requested or confirmed)"], ["overdue", "Overdue"], ["confirmed", "Confirmed"], ["received", "Received"], ["canceled", "Canceled"], ["declined", "Declined"]],
+  reviewer: [["all", "All"], ["open", "Not yet submitted"], ["overdue", "Overdue"], ["confirmed", "Confirmed"], ["submitted", "Submitted"], ["canceled", "Canceled"], ["declined", "Declined"]],
+};
+function setMode(m) {
+  if (m === mode) return;
+  mode = m;
+  $("fState").innerHTML = FILTERS[m].map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+  $("fState").value = m === "editor" ? "open" : "all";
+  $("includeAllLabel").textContent = m === "editor" ? "Papers with any status" : "Past reviews too";
+  $("q").placeholder = m === "editor" ? "Search reviewer, paper, title…" : "Search paper, title, authors, editor…";
+}
+
+// While a request with a message runs, a modal on top of everything (dialogs
+// included) blocks the page, and the window refuses to close.
+let busyCount = 0, busyTimer;
+function setBusy(on, msg) {
+  const d = $("busy");
+  if (on) {
+    $("busyMsg").textContent = msg;
+    if (busyCount++) return;
+    const t0 = Date.now();
+    $("busyTime").textContent = "0 s";
+    $("busyNoClose").classList.add("hidden");
+    busyTimer = setInterval(() => { $("busyTime").textContent = `${Math.round((Date.now() - t0) / 1000)} s`; }, 1000);
+    d.showModal();
+    if (NATIVE) native({ cmd: "busy", data: true });
+  } else if (!--busyCount) {
+    clearInterval(busyTimer);
+    d.close();
+    if (NATIVE) native({ cmd: "busy", data: false });
+  }
+}
+$("busy").addEventListener("cancel", (e) => e.preventDefault());
+$("busy").addEventListener("keydown", (e) => { if (e.key === "Escape") e.preventDefault(); });
+window.addEventListener("beforeunload", (e) => { if (busyCount) e.preventDefault(); });
+
+async function api(name, data = {}, busyMsg) {
+  if (busyMsg) setBusy(true, busyMsg);
+  try {
+    const r = await fetch("/api/" + name, { method: "POST", headers: { "Content-Type": "application/json", "X-Docket-Token": TOKEN }, body: JSON.stringify(data) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "request failed");
+    return j;
+  } finally { if (busyMsg) setBusy(false); }
+}
+
+// In the app (its own windows), the page talks to the window manager; in a
+// browser the same features open as dialogs in this page.
+const NATIVE = !!(window.ipc && window.ipc.postMessage);
+const PARAMS = new URLSearchParams(location.search);
+const VIEW = PARAMS.get("view") || "";
+const native = (msg) => window.ipc.postMessage(JSON.stringify(msg));
+// A page that just loaded is not waiting for anything (see setBusy).
+if (NATIVE) native({ cmd: "busy", data: false });
+// Open `view` in its own window in the app, or run `inline` in a browser.
+function popOut(view, query, title, [width, height], inline) {
+  if (!NATIVE) return inline();
+  native({ cmd: "open", view, query: new URLSearchParams(query).toString(), title, width, height });
+}
+// Tell the other windows that something changed.
+function tell(event, data = null) { if (NATIVE) native({ cmd: "broadcast", event, data }); }
+window.docketEvent = (event, data) => {
+  if (event === "reviews") { reviews = data; if (!VIEW) render(); }
+  if (event === "schedules") loadSchedules().then(() => { if (!VIEW) render(); });
+  if (event === "reload" && !VIEW && S.role) load();
+  if (event === "busy-close") { $("busyNoClose").textContent = "Wait until this is finished before closing the window."; $("busyNoClose").classList.remove("hidden"); }
+  if (event === "menu") menuCommand(data.action, data.arg);
+};
+// alert() and confirm() do nothing in the app's windows, so both use this.
+function ask(message, yes = "OK", no = "Cancel") {
+  const d = $("ask");
+  $("askMsg").textContent = message;
+  $("askYes").textContent = yes;
+  $("askNo").classList.toggle("hidden", !no);
+  if (no) $("askNo").textContent = no;
+  d.showModal();
+  return new Promise((res) => {
+    const done = (v) => { d.onclose = null; d.close(); res(v); };
+    $("askYes").onclick = () => done(true);
+    $("askNo").onclick = () => done(false);
+    d.onclose = () => res(false);
+  });
+}
+const say = (message) => ask(message, "OK", "");
+
+function show(view) { for (const v of ["vLogin", "vPick", "vMain"]) $(v).classList.toggle("hidden", v !== view); renderHeader(); }
+
+function renderHeader() {
+  syncMenus();
+  const site = (S.sites || []).find((x) => x.host === S.site);
+  $("ctx").textContent = S.logged_in ? `${site ? site.name : S.site} · ${S.login_id}` : "";
+  $("viewerBadge").classList.toggle("hidden", !(S.logged_in && S.viewer));
+  $("btnLogout").classList.toggle("hidden", !S.logged_in);
+  $("btnReload").classList.toggle("hidden", !S.role);
+  const menus = !!(S.logged_in && S.journal && $("vPick").classList.contains("hidden"));
+  for (const id of ["hdrJournal", "hdrRole"]) $(id).classList.toggle("hidden", !menus);
+  if (!menus) return;
+  $("hdrJournal").innerHTML = (S.journals || []).map((j) => `<option value="${esc(j.code)}" ${S.journal.code === j.code ? "selected" : ""}>${esc(j.name)}</option>`).join("");
+  const rs = S.roles || [];
+  $("hdrRole").innerHTML = (S.role ? "" : `<option value="">${rs.length ? "Choose a role…" : "No editor or reviewer role"}</option>`) +
+    rs.map((r) => `<option value="${esc(r.command)}" ${S.role && S.role.command === r.command ? "selected" : ""}>${esc(r.label)}</option>`).join("");
+  $("hdrRole").disabled = !rs.length;
+}
+
+async function openRole(command) {
+  S = await api("role", { command }, "Opening the workspace…");
+  renderHeader();
+  selected.clear();
+  $("includeAll").checked = false;
+  $("q").value = "";
+  await load();
+}
+$("hdrJournal").onchange = () => switchJournal($("hdrJournal").value);
+async function switchJournal(code) {
+  const kind = S.role && S.role.kind;
+  try {
+    S = await api("journal", { code }, "Opening the journal…");
+    const rs = S.roles || [];
+    const pick = rs.find((r) => r.kind === kind) || rs.find((r) => r.label === S.saved_role) || rs[0];
+    if (pick) return await openRole(pick.command);
+    renderHeader();
+    papers = []; reviews = []; assignments = []; selected.clear(); updateBar();
+    show("vMain");
+    $("counts").textContent = "";
+    $("tableWrap").innerHTML = `<div class="card muted">You have no editor or reviewer role in ${esc(S.journal.name)}.</div>`;
+  } catch (e) { say(e.message); renderHeader(); }
+}
+$("hdrRole").onchange = () => { if ($("hdrRole").value) openRole($("hdrRole").value).catch((e) => { say(e.message); renderHeader(); }); };
+
+async function boot() {
+  S = await api("state");
+  renderHeader();
+  if (!S.logged_in) return showLogin();
+  await afterLogin();
+}
+
+function showLogin() {
+  show("vLogin");
+  $("site").innerHTML = (S.sites || []).map((x) => `<option value="${esc(x.host)}" ${x.host === S.site ? "selected" : ""}>${esc(x.name)} — ${esc(x.host)}</option>`).join("");
+  fillSiteLogin();
+  $("viewerMode").checked = !!S.saved_viewer;
+  ($("loginId").value ? $("password") : $("loginId")).focus();
+}
+function fillSiteLogin() {
+  const x = (S.sites || []).find((y) => y.host === $("site").value) || {};
+  $("loginId").value = x.login_id || "";
+  $("password").value = "";
+  $("password").placeholder = x.has_saved_password ? "Saved in the Keychain — leave empty" : "";
+  $("btnForget").classList.toggle("hidden", !x.has_saved_password);
+}
+$("site").onchange = fillSiteLogin;
+
+$("btnLogin").onclick = async () => {
+  $("loginErr").textContent = "";
+  try {
+    S = await api("login", { site: $("site").value, login_id: $("loginId").value.trim(), password: $("password").value, remember: $("remember").checked, viewer: $("viewerMode").checked }, "Logging in…");
+    $("password").value = "";
+    renderHeader();
+    await afterLogin();
+  } catch (e) { $("loginErr").textContent = e.message; }
+};
+$("password").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
+$("btnForget").onclick = async () => { const site = $("site").value; S = await api("forget", { site }); S.site = site; showLogin(); };
+$("btnLogout").onclick = async () => { S = await api("logout", {}, "Logging out…"); papers = []; reviews = []; assignments = []; selected.clear(); renderHeader(); updateBar(); showLogin(); };
+$("btnReload").onclick = () => load();
+$("includeAll").onchange = () => load();
+
+async function afterLogin() {
+  if (!S.journal && S.saved_journal && (S.journals || []).some((j) => j.code === S.saved_journal)) {
+    try { S = await api("journal", { code: S.saved_journal }, "Opening " + S.saved_journal.toUpperCase() + "…"); } catch (e) { /* fall through to the picker */ }
+  }
+  if (S.journal && !S.role) {
+    const roles = S.roles || [];
+    const pick = roles.find((r) => r.label === S.saved_role) || (roles.length === 1 ? roles[0] : null);
+    if (pick) { try { S = await api("role", { command: pick.command }, "Opening the " + pick.label + " workspace…"); } catch (e) { /* picker */ } }
+  }
+  renderHeader();
+  if (S.role) return load();
+  showPicker();
+}
+
+function showPicker() {
+  show("vPick");
+  const js = S.journals || [];
+  $("journal").innerHTML = js.map((j) => `<option value="${esc(j.code)}" ${S.journal && S.journal.code === j.code ? "selected" : ""}>${esc(j.name)} — ${esc(j.description.replace(/ access page.*$/i, ""))}</option>`).join("");
+  fillRoles();
+}
+function fillRoles() {
+  const rs = S.journal && S.journal.code === $("journal").value ? (S.roles || []) : [];
+  $("role").innerHTML = rs.length ? rs.map((r) => `<option value="${esc(r.command)}" ${S.role && S.role.command === r.command ? "selected" : ""}>${esc(r.label)}</option>`).join("") : `<option value="">(no editor or reviewer role in this journal)</option>`;
+  $("role").disabled = !rs.length;
+}
+$("journal").onchange = async () => {
+  $("pickErr").textContent = "";
+  try { S = await api("journal", { code: $("journal").value }, "Opening the journal…"); fillRoles(); } catch (e) { $("pickErr").textContent = e.message; }
+};
+$("btnPick").onclick = async () => {
+  $("pickErr").textContent = "";
+  try {
+    if (!S.journal || S.journal.code !== $("journal").value) { S = await api("journal", { code: $("journal").value }, "Opening the journal…"); fillRoles(); }
+    if (!$("role").value) return;
+    await openRole($("role").value);
+  } catch (e) { $("pickErr").textContent = e.message; }
+};
+
+async function load() {
+  try {
+    const reviewer = S.role && S.role.kind === "reviewer";
+    const j = await api("load", { include_all: $("includeAll").checked }, reviewer ? "Reading your review requests from PaperPlaza…" : "Reading your papers and reviews from PaperPlaza…");
+    setMode(j.mode);
+    papers = j.papers || []; reviews = j.reviews || []; assignments = j.assignments || [];
+    folded = new Set(j.folded || []);
+    await loadSchedules();
+    for (const id of [...selected]) if (!reviews.some((r) => r.review_id === id)) selected.delete(id);
+    $("warnings").innerHTML = (j.warnings || []).map((w) => `<div>${esc(w)}</div>`).join("");
+    $("warnings").classList.toggle("hidden", !(j.warnings || []).length);
+    show("vMain"); render();
+  } catch (e) { say(e.message); }
+}
+
+// Which version a review is of: the paper's own versions, or a previous submission's.
+const roundKey = (r) => `${r.from_submission || ""}|${r.version}`;
+const roundOrder = (r) => (r.from_submission ? 100000 : 0) - Number(r.version || 0);
+const paperVersion = (p) => p.number.split(".").pop();
+const isCurrentRound = (r, p) => !r.from_submission && r.version === paperVersion(p);
+const roundLabel = (r, p) => r.from_submission ? `Previous submission ${r.from_submission} · version ${r.version}`
+  : `Version ${r.version}${p && r.version === paperVersion(p) ? " · current" : ""}`;
+const roundOf = (r) => roundLabel(r, papers.find((p) => p.id === r.paper_id));
+const isOpen = (r) => !/^(cancel|received|declined|submitted)/i.test(r.state);
+function matchesState(r) {
+  const f = $("fState").value;
+  if (f === "open" && !isOpen(r)) return false;
+  if (f === "overdue" && !r.overdue) return false;
+  if (f === "accepted" && !/^(confirmed|received|submitted)/i.test(r.state)) return false;
+  if (!["all", "open", "overdue", "accepted"].includes(f) && !r.state.toLowerCase().startsWith(f.slice(0, 6))) return false;
+  return true;
+}
+function hasText(fields) {
+  const q = $("q").value.trim().toLowerCase();
+  return !q || fields.join(" ").toLowerCase().includes(q);
+}
+const matches = (r) => matchesState(r) && hasText([r.reviewer, r.pin, r.review_id, r.paper_id, r.paper_title, r.status_raw]);
+const matchesA = (a) => matchesState(a) && hasText([a.review_id, a.number, a.title, a.authors, a.requested_by, a.requester_role, a.status_raw, a.kind]);
+const fmt = (d) => d ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
+
+function renderAssignments() {
+  const shown = assignments.filter(matchesA);
+  const where = S.journal ? S.journal.name : "this journal";
+  $("counts").textContent = `${shown.length} of ${assignments.length} review requests shown`;
+  if (!assignments.length) {
+    $("tableWrap").innerHTML = `<div class="card muted">${$("includeAll").checked ? `No reviews in ${esc(where)}.` : `No current review requests in ${esc(where)}. Tick “Past reviews too” to see the reviews you have done.`}</div>`;
+    return updateBar();
+  }
+  let h = `<table class="asg"><thead><tr><th>Paper</th><th>Requested by</th><th>Review</th><th>Status</th><th>Due</th><th>Rec.</th></tr></thead><tbody>`;
+  for (const a of shown) {
+    const st = a.state.toLowerCase().split(" ")[0];
+    const who = a.requester_email ? `<a href="mailto:${esc(a.requester_email)}">${esc(a.requested_by)}</a>` : esc(a.requested_by);
+    h += `<tr data-aid="${esc(a.review_id)}" title="Right-click for details">
+      <td>${esc(a.number)} — ${esc(a.title)}<div class="muted small">${esc(a.kind)} · version ${esc(a.version)} · ${esc(a.authors)}</div></td>
+      <td>${who}<div class="muted small">${esc(a.requester_role)}</div></td>
+      <td class="muted">${esc(a.review_id)}</td>
+      <td><span class="badge s-${esc(st)}">${esc(a.state)}</span> <span class="muted small nowrap">${fmt(a.state_date)}${a.reminders ? " · reminded" : ""}</span></td>
+      <td class="nowrap ${a.overdue ? "overdue" : ""}">${fmt(a.due)}</td>
+      <td>${esc(a.recommendation)}</td></tr>`;
+  }
+  if (!shown.length) h += `<tr><td colspan="6" class="muted small">No reviews match the filter.</td></tr>`;
+  $("tableWrap").innerHTML = h + `</tbody></table>`;
+  for (const tr of document.querySelectorAll("tr[data-aid]")) {
+    tr.oncontextmenu = (e) => assignmentMenu(e, tr.dataset.aid);
+    tr.ondblclick = () => assignmentDetails(tr.dataset.aid);
+  }
+  updateBar();
+}
+
+function render() {
+  if (mode === "reviewer") return renderAssignments();
+  const shown = reviews.filter(matches);
+  $("counts").textContent = `${papers.length} papers · ${shown.length} of ${reviews.length} reviews shown`;
+  const allShut = papers.length > 0 && papers.every((p) => folded.has(p.id));
+  let h = `<table><thead><tr><th class="c-fold"><button class="tog" id="foldAll" title="${allShut ? "Expand" : "Collapse"} every paper">${allShut ? "+" : "−"}</button></th>
+    <th class="c-sel"><input type="checkbox" id="selAll" title="Select all shown"></th><th>Reviewer</th><th>Review</th><th>Status</th><th>Due</th><th title="* marks on PaperPlaza: reminder sent">Rem.</th><th>Rec.</th></tr></thead><tbody>`;
+  for (const p of papers) {
+    const rs = shown.filter((r) => r.paper_id === p.id);
+    const q = $("q").value.trim().toLowerCase();
+    const paperHit = q && [p.id, p.number, p.title, p.authors].join(" ").toLowerCase().includes(q);
+    if (!rs.length && !paperHit && (q || $("fState").value !== "all")) continue;
+    const allSel = rs.length && rs.every((r) => selected.has(r.review_id));
+    const shut = folded.has(p.id);
+    const tally = Object.entries(reviews.filter((r) => r.paper_id === p.id).reduce((m, r) => { const k = r.state.toLowerCase().split(" ")[0]; m[k] = (m[k] || 0) + 1; return m; }, {}))
+      .map(([k, n]) => `${n} ${k}`).join(", ");
+    h += `<tr class="paper" data-pid="${esc(p.id)}"><td><button class="tog" data-fold="${esc(p.id)}" title="${shut ? "Show" : "Hide"} the reviews">${shut ? "+" : "−"}</button></td>
+      <td><input type="checkbox" data-paper="${esc(p.id)}" ${allSel ? "checked" : ""} ${rs.length ? "" : "disabled"}></td>
+      <td colspan="6">${esc(p.number)} — ${esc(p.title)}${schedChip(p.id)}
+      ${shut ? `<span class="meta small"> · ${rs.length} review${rs.length === 1 ? "" : "s"} shown${tally ? ` (${esc(tally)})` : ""}</span>` : ""}<div class="meta small">${esc(p.kind)} · ${esc(p.status)} · decision due ${esc(p.next_due)} · editor ${esc(p.editor)}
+      · <button class="link small" data-auto="${esc(p.id)}">Find reviewers and invite…</button></div></td></tr>`;
+    if (shut) continue;
+    if (!rs.length) h += `<tr><td></td><td></td><td colspan="6" class="muted small">No reviews match the filter.</td></tr>`;
+    // Reviews grouped by round: this paper's versions, newest first, then previous submissions.
+    const many = new Set(reviews.filter((r) => r.paper_id === p.id).map(roundKey)).size > 1;
+    let last = null;
+    for (const r of [...rs].sort((a, b) => roundOrder(a) - roundOrder(b))) {
+      const st = r.state.toLowerCase().split(" ")[0];
+      const old = !isCurrentRound(r, p);
+      if (many && roundKey(r) !== last) {
+        last = roundKey(r);
+        h += `<tr class="round"><td></td><td></td><td colspan="6">${esc(roundLabel(r, p))}</td></tr>`;
+      }
+      h += `<tr class="review ${selected.has(r.review_id) ? "selected" : ""} ${old ? "old" : ""}" data-id="${esc(r.review_id)}">
+        <td></td><td><input type="checkbox" data-review="${esc(r.review_id)}" ${selected.has(r.review_id) ? "checked" : ""}></td>
+        <td>${esc(r.reviewer)} <span class="muted small">(${esc(r.pin)})</span></td>
+        <td class="muted">${esc(r.review_id)}</td>
+        <td><span class="badge s-${esc(st)}">${esc(r.state)}</span> <span class="muted small nowrap">${fmt(r.state_date)}${r.thanked ? " · thanked" : ""}</span></td>
+        <td class="nowrap ${r.overdue ? "overdue" : ""}">${fmt(r.due)}</td>
+        <td>${r.reminders ? "*".repeat(r.reminders) : ""}</td>
+        <td>${esc(r.recommendation)}</td></tr>`;
+    }
+  }
+  h += `</tbody></table>`;
+  if (!papers.length) h = `<div class="card muted">No papers in this workspace${$("includeAll").checked ? "" : " with an active status. Tick “Papers with any status” to see all"}.</div>`;
+  $("tableWrap").innerHTML = h;
+  const sa = $("selAll");
+  if (sa) {
+    sa.checked = shown.length > 0 && shown.every((r) => selected.has(r.review_id));
+    sa.onchange = () => { for (const r of shown) sa.checked ? selected.add(r.review_id) : selected.delete(r.review_id); render(); };
+  }
+  for (const cb of document.querySelectorAll("[data-review]")) cb.onchange = () => { cb.checked ? selected.add(cb.dataset.review) : selected.delete(cb.dataset.review); render(); };
+  for (const b of document.querySelectorAll("[data-auto]")) b.onclick = () => pickerWindow(b.dataset.auto);
+  for (const b of document.querySelectorAll("[data-fold]")) b.onclick = () => { folded.has(b.dataset.fold) ? folded.delete(b.dataset.fold) : folded.add(b.dataset.fold); saveFolded(); render(); };
+  if ($("foldAll")) $("foldAll").onclick = () => { if (allShut) folded.clear(); else for (const p of papers) folded.add(p.id); saveFolded(); render(); };
+  for (const tr of document.querySelectorAll("tr.paper[data-pid]")) tr.oncontextmenu = (e) => paperMenu(e, tr.dataset.pid);
+  for (const tr of document.querySelectorAll("tr.review[data-id]")) tr.oncontextmenu = (e) => reviewMenu(e, tr.dataset.id);
+  for (const cb of document.querySelectorAll("[data-paper]")) cb.onchange = () => {
+    for (const r of shown.filter((x) => x.paper_id === cb.dataset.paper)) cb.checked ? selected.add(r.review_id) : selected.delete(r.review_id);
+    render();
+  };
+  updateBar();
+}
+$("q").oninput = render; $("fState").onchange = render;
+$("btnClear").onclick = () => { selected.clear(); render(); };
+
+function updateBar() {
+  $("bar").classList.toggle("show", mode === "editor" && selected.size > 0);
+  $("barViewer").classList.toggle("hidden", !S.viewer);
+  for (const b of document.querySelectorAll("#bar [data-act]")) { b.disabled = !!S.viewer; b.title = S.viewer ? "Viewer mode: log in without viewer mode to make changes" : ""; }
+  $("selCount").textContent = `${selected.size} review${selected.size === 1 ? "" : "s"} selected`;
+  syncMenus();
+}
+
+$("btnCsv").onclick = () => {
+  const reviewer = mode === "reviewer";
+  const cols = reviewer
+    ? ["review_id", "number", "version", "title", "authors", "kind", "requested_by", "requester_role", "requester_email", "state", "status_raw", "due", "recommendation"]
+    : ["paper_id", "paper_title", "from_submission", "version", "reviewer", "pin", "review_id", "state", "status_raw", "due", "reminders", "recommendation"];
+  const rows = reviewer ? assignments.filter(matchesA) : reviews.filter(matches);
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\n");
+  const name = `${reviewer ? "my-reviews" : "reviews"}-${(S.journal && S.journal.code) || "paperplaza"}-${new Date().toISOString().slice(0, 10)}.csv`;
+  if (NATIVE) return api("save_download", { name, text: "﻿" + csv }).catch((e) => say(e.message));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = name;
+  a.click();
+};
+
+// ---------------------------------------------------------------- dialogs
+const dlg = $("dlg");
+function openDialog(title, body, foot) { dlg.classList.remove("wide"); $("dlgHead").textContent = title; $("dlgBody").innerHTML = body; $("dlgFoot").innerHTML = foot; if (!dlg.open) dlg.showModal(); }
+function selectedList() { return reviews.filter((r) => selected.has(r.review_id)); }
+
+for (const b of document.querySelectorAll("#bar [data-act]")) b.onclick = () => ({ contact: () => messageWindow(), extend: extendForm, cancel: cancelForm })[b.dataset.act]();
+// The message window for the selected reviews, with `template` filled in.
+function messageWindow(template) {
+  const n = selected.size;
+  popOut("message", { ids: [...selected].join(","), template: template || "" }, `Message ${n} reviewer${n === 1 ? "" : "s"}`, [1300, 900], () => contactForm({ template }));
+}
+
+let draft = { subject: "", cc: "", message: "Dear %reviewerfirstname,\n\n\n\nBest regards,\n%signature", template: "", do_not_archive: false, my_eyes_only: false, do_not_copy_me: false };
+let tpl = { signature: "", list: [], defaults: [], placeholders: [] };
+async function loadTemplates() { tpl = await api("templates"); }
+const chips = (where) => tpl.placeholders.map((p) => `<button class="chip ph" data-ph="${esc(p.name)}" data-for="${where}" title="${esc(p.about)}">${esc(p.name)}</button>`).join(" ");
+// Insert a placeholder where the cursor is, in the field last used.
+function wireChips(fields) {
+  let last = fields[fields.length - 1];
+  for (const id of fields) $(id).addEventListener("focus", () => { last = id; });
+  for (const b of document.querySelectorAll(".ph")) b.onclick = (e) => {
+    e.preventDefault();
+    const el = $(last);
+    const [a, z] = [el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length];
+    el.value = el.value.slice(0, a) + b.dataset.ph + el.value.slice(z);
+    el.focus(); el.selectionStart = el.selectionEnd = a + b.dataset.ph.length;
+    el.dispatchEvent(new Event("input"));
+  };
+}
+
+async function contactForm(start = {}) {
+  try { await loadTemplates(); } catch (e) { say(e.message); return; }
+  if (start.template) {
+    const t = tpl.list.find((x) => x.name === start.template);
+    if (t) draft = { ...draft, subject: t.subject, message: t.body, template: t.name };
+  }
+  const rs = selectedList();
+  const n = rs.length;
+  openDialog(`Message ${n} reviewer${n === 1 ? "" : "s"}`, `
+    <div class="note small">Each message is sent separately through PaperPlaza's <em>Contact the reviewer</em> page, so it is archived with the submission like one you send by hand.
+    Placeholders such as <code>%reviewerfirstname</code> or <code>%deadline</code> are replaced for each reviewer.</div>
+    <div class="cols"><div>
+    <div class="row"><label class="inline" style="margin:0">Template
+      <select id="mTpl" style="width:auto"><option value="">— none —</option>${tpl.list.map((t) => `<option ${t.name === draft.template ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
+      <button class="link small" id="mTplEdit">Edit templates…</button></div>
+    <label for="mSubject">Subject</label><input id="mSubject" type="text" placeholder="Empty: PaperPlaza's default, e.g. “IEEE-TAC 26-1234: Your review”" value="${esc(draft.subject)}">
+    <label for="mCc">Cc <span class="muted small">(comma-separated e-mail addresses)</span></label><input id="mCc" type="text" value="${esc(draft.cc)}">
+    <label for="mMsg">Message</label><textarea id="mMsg" style="min-height:300px">${esc(draft.message)}</textarea>
+    <details style="margin-top:6px"><summary class="small">Placeholders (click one to insert it)</summary><div style="margin-top:6px; line-height:2">${chips("m")}</div></details>
+    </div><div><div class="note pv" style="margin-top:0">
+      <div class="row small"><strong>Preview</strong> for <select id="mWho" style="width:auto; max-width:100%">${rs.map((r) => `<option value="${esc(r.review_id)}">${esc(r.reviewer)} · ${esc(r.paper_id)}</option>`).join("")}</select></div>
+      <div class="small" style="margin-top:8px"><span class="muted">Subject:</span> <span id="mLiveSubj"></span></div>
+      <div class="qa"><div class="a" id="mLiveMsg"></div></div></div></div></div>
+    <label for="mFile">Attachment <span class="muted small">(optional, under 5 MB, attached to every message)</span></label><input id="mFile" type="file">
+    <div><label class="inline"><input type="checkbox" id="mNoArch" ${draft.do_not_archive ? "checked" : ""}> Do not archive</label>
+    <label class="inline"><input type="checkbox" id="mEyes" ${draft.my_eyes_only ? "checked" : ""}> Archive for my eyes only</label>
+    <label class="inline"><input type="checkbox" id="mNoCopy" ${draft.do_not_copy_me ? "checked" : ""}> Do not send me a copy</label></div>
+    <div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button class="primary" id="dNext">Check all messages</button>`);
+  dlg.classList.add("wide");
+  let timer, seq = 0;
+  async function live() {
+    const mine = ++seq;
+    try {
+      const j = await api("fill", { review_id: $("mWho").value, subject: $("mSubject").value, message: $("mMsg").value });
+      if (mine !== seq || !$("mLiveMsg")) return;
+      $("mLiveSubj").textContent = j.subject || "(PaperPlaza's default subject)";
+      $("mLiveMsg").textContent = j.message;
+      $("mLiveMsg").classList.remove("err");
+    } catch (e) {
+      if (mine !== seq || !$("mLiveMsg")) return;
+      $("mLiveMsg").textContent = e.message;
+      $("mLiveMsg").classList.add("err");
+    }
+  }
+  const soon = () => { clearTimeout(timer); timer = setTimeout(live, 350); };
+  $("mSubject").oninput = soon; $("mMsg").oninput = soon; $("mWho").onchange = live;
+  $("mTpl").onchange = () => {
+    const t = tpl.list.find((x) => x.name === $("mTpl").value);
+    if (t) { $("mSubject").value = t.subject; $("mMsg").value = t.body; }
+    live();
+  };
+  wireChips(["mSubject", "mMsg"]);
+  $("mTplEdit").onclick = () => { keepDraft(); templatesForm(contactForm); };
+  live();
+  $("dClose").onclick = () => { keepDraft(); dlg.close(); };
+  $("dNext").onclick = async () => {
+    keepDraft();
+    const f = $("mFile").files[0];
+    let attachment_b64 = "", attachment_name = "";
+    if (f) {
+      if (f.size > 5 * 1024 * 1024) { $("dErr").textContent = "The attachment is larger than 5 MB."; return; }
+      attachment_name = f.name;
+      attachment_b64 = await new Promise((res) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(",")[1] || ""); rd.readAsDataURL(f); });
+    }
+    const { template, ...req } = draft;
+    await preview({ action: "contact", ...req, attachment_name, attachment_b64 }, (n) => `Send ${n} message${n === 1 ? "" : "s"}`, "primary", () => contactForm());
+  };
+}
+
+// Edit, add and delete message templates and the signature.
+async function templatesForm(back) {
+  try { await loadTemplates(); } catch (e) { say(e.message); return; }
+  let list = tpl.list.map((t) => ({ ...t })), signature = tpl.signature, cur = list.length ? 0 : -1;
+  const saved = () => JSON.stringify({ signature: tpl.signature, list: tpl.list });
+  openDialog("Message templates", `
+    <label for="tSig">Signature <span class="muted small">(what <code>%signature</code> stands for)</span></label>
+    <textarea id="tSig" style="min-height:70px" placeholder="e.g. Jane Doe&#10;Associate Editor, IEEE Transactions on Automatic Control">${esc(signature)}</textarea>
+    <div class="cols" style="margin-top:12px">
+      <div><label>Templates</label><div class="list" id="tList"></div>
+        <div class="row" style="margin-top:8px"><button id="tAdd">New</button><button id="tDup">Duplicate</button><button id="tDel">Delete</button></div>
+        <button class="link small" id="tReset" style="margin-top:8px">Restore the default templates</button></div>
+      <div><label for="tName">Name</label><input id="tName" type="text">
+        <label for="tSubj">Subject</label><input id="tSubj" type="text">
+        <label for="tBody">Message</label><textarea id="tBody" style="min-height:260px"></textarea></div>
+    </div>
+    <details style="margin-top:6px"><summary class="small">Placeholders (click one to insert it)</summary><div style="margin-top:6px; line-height:2">${chips("t")}</div>
+      <div class="small muted" style="margin-top:6px">${tpl.placeholders.map((p) => `<code>${esc(p.name)}</code> ${esc(p.about)}`).join(" · ")}</div></details>
+    <div class="small" id="tMsg"></div><div class="err" id="dErr"></div>`,
+    `${back ? `<button id="dBack">Back</button>` : ""}<button id="dClose">Close</button><button class="primary" id="tSave">Save</button>`);
+  function keep() {
+    signature = $("tSig").value;
+    if (list[cur]) Object.assign(list[cur], { name: $("tName").value, subject: $("tSubj").value, body: $("tBody").value });
+  }
+  function draw() {
+    $("tList").innerHTML = list.map((t, i) => `<div class="li" data-t="${i}" style="cursor:pointer; ${i === cur ? "background:var(--sel)" : ""}">${esc(t.name || "(no name)")}</div>`).join("") || `<div class="li muted small">No templates.</div>`;
+    for (const el of $("tList").querySelectorAll("[data-t]")) el.onclick = () => { keep(); cur = Number(el.dataset.t); draw(); };
+    const t = list[cur];
+    for (const id of ["tName", "tSubj", "tBody"]) $(id).disabled = !t;
+    $("tName").value = t ? t.name : ""; $("tSubj").value = t ? t.subject : ""; $("tBody").value = t ? t.body : "";
+    $("tDel").disabled = $("tDup").disabled = !t;
+  }
+  $("tAdd").onclick = () => { keep(); list.push({ name: `New template ${list.length + 1}`, subject: "%journal %paper: ", body: "Dear %reviewerfirstname,\n\n\n\nBest regards,\n%signature" }); cur = list.length - 1; draw(); $("tName").select(); };
+  $("tDup").onclick = () => { keep(); list.splice(cur + 1, 0, { ...list[cur], name: `${list[cur].name} (copy)` }); cur += 1; draw(); };
+  $("tDel").onclick = async () => { if (!(await ask(`Delete the template “${list[cur].name}”?`, "Delete"))) return; list.splice(cur, 1); cur = Math.min(cur, list.length - 1); draw(); };
+  $("tReset").onclick = () => {
+    keep();
+    for (const d of tpl.defaults) { const i = list.findIndex((t) => t.name === d.name); if (i >= 0) list[i] = { ...d }; else list.push({ ...d }); }
+    draw(); $("tMsg").textContent = "Default templates restored (your other templates are kept). Click Save to keep this.";
+  };
+  wireChips(["tSubj", "tBody"]);
+  $("tSave").onclick = async () => {
+    keep(); $("dErr").textContent = ""; $("tMsg").textContent = "";
+    try { const j = await api("templates_save", { signature, list }); tpl.signature = j.signature; tpl.list = j.list; $("tMsg").textContent = "Saved."; draw(); }
+    catch (e) { $("dErr").textContent = e.message; }
+  };
+  const leave = async (go) => { keep(); if (JSON.stringify({ signature, list }) !== saved() && !(await ask("Leave without saving your changes?", "Leave"))) return; go(); };
+  $("dClose").onclick = () => leave(() => dlg.close());
+  if (back) $("dBack").onclick = () => leave(() => back());
+  draw();
+}
+function keepDraft() {
+  if (!$("mMsg")) return;
+  draft = { subject: $("mSubject").value, cc: $("mCc").value, message: $("mMsg").value, template: $("mTpl").value, do_not_archive: $("mNoArch").checked, my_eyes_only: $("mEyes").checked, do_not_copy_me: $("mNoCopy").checked };
+}
+
+function extendForm() {
+  const n = selected.size;
+  openDialog(`Extend ${n} deadline${n === 1 ? "" : "s"}`, `
+    <div class="note small">Uses PaperPlaza's <em>Extend the deadline</em> function for each review. Canceled and received reviews are skipped.</div>
+    <label for="xDays">Extension</label>
+    <select id="xDays"><option value="1">1 day</option><option value="3">3 days</option><option value="7" selected>1 week</option><option value="10">10 days</option><option value="14">2 weeks</option><option value="21">3 weeks</option><option value="28">4 weeks</option></select>
+    <div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button class="primary" id="dNext">Preview</button>`);
+  $("dClose").onclick = () => dlg.close();
+  $("dNext").onclick = () => preview({ action: "extend", days: Number($("xDays").value) }, (n) => `Extend ${n} deadline${n === 1 ? "" : "s"}`, "primary", extendForm);
+}
+
+function cancelForm() {
+  preview({ action: "cancel" }, (n) => `Cancel ${n} review request${n === 1 ? "" : "s"}`, "danger", null,
+    `<div class="note small">Each request is canceled on PaperPlaza as with <em>Cancel or uncancel the review request</em>, and the tool then checks the status changed.
+    <strong>No cancellation notice is e-mailed</strong> (that step is not supported yet). If you want to tell the reviewers, select them afterwards and use <em>Message…</em>.</div>`);
+}
+
+async function preview(req, verb, cls, back, intro = "") {
+  let plan;
+  try { plan = await api("plan", { ...req, review_ids: [...selected] }, "Preparing the preview…"); }
+  catch (e) { if ($("dErr")) $("dErr").textContent = e.message; else say(e.message); return; }
+  const doable = plan.items.filter((i) => !i.skip).length;
+  const items = plan.items.map((i) => `<div class="item ${i.skip ? "bad" : ""}">
+      <div><strong>${esc(i.reviewer)}</strong> <span class="muted small">(${esc(i.pin)}) · review ${esc(i.review_id)} · ${esc(i.paper_id)} · ${esc(i.status)}</span></div>
+      ${i.skip ? `<div class="st">${esc(i.skip)}</div>` : ""}
+      ${req.action === "contact" ? `<div class="small" style="margin-top:6px"><span class="muted">Subject:</span> ${esc(i.subject || "(PaperPlaza's default subject)")}</div><pre>${esc(i.message)}</pre>` : ""}
+    </div>`).join("");
+  openDialog("Check before sending", intro + `<div class="muted small" style="margin-top:12px">Nothing has been sent yet. ${doable} of ${plan.items.length} will be processed.</div>` + items,
+    `${back ? `<button id="dBack">Back</button>` : ""}<button id="dClose">Close</button><button class="${cls}" id="dGo" ${doable ? "" : "disabled"}>${esc(verb(doable))}</button>`);
+  if (back) $("dBack").onclick = back;
+  $("dClose").onclick = () => dlg.close();
+  $("dGo").onclick = () => execute(plan.plan_id);
+}
+
+async function execute(planId) {
+  let j;
+  try { j = await api("execute", { plan_id: planId }, "Working on PaperPlaza… please wait"); }
+  catch (e) { openDialog("Something went wrong", `<div class="err">${esc(e.message)}</div>`, `<button id="dClose">Close</button>`); $("dClose").onclick = () => dlg.close(); return; }
+  reviews = j.reviews;
+  tell("reviews", reviews);
+  const ok = j.results.filter((r) => r.ok).length;
+  for (const r of j.results) if (r.ok) selected.delete(r.review_id);
+  openDialog(`Done: ${ok} of ${j.results.length} succeeded`, j.results.map((r) => `<div class="item ${r.ok ? "good" : "bad"}">
+      <div><strong>${esc(r.reviewer)}</strong> <span class="muted small">review ${esc(r.review_id)} · ${esc(r.paper_id)}</span></div>
+      <div class="st">${r.ok ? "✓" : "✗"} ${esc(r.message)}</div></div>`).join("") +
+      (ok < j.results.length ? `<div class="muted small">Failed items stay selected so you can retry or check them on PaperPlaza.</div>` : ""),
+    `<button class="primary" id="dClose">Close</button>`);
+  $("dClose").onclick = () => dlg.close();
+  render();
+}
+
+// ---------------------------------------------------- right-click menus
+const menu = $("menu");
+const viewerNote = () => S.viewer ? "Viewer mode: log in without viewer mode to make changes" : "";
+function openMenu(e, items) {
+  e.preventDefault();
+  menu.innerHTML = items.map((it, i) => it === "-" ? "<hr>"
+    : `<button data-m="${i}" class="${it.danger ? "dangerText" : ""}" ${it.disabled ? `disabled title="${esc(it.disabled)}"` : ""}>${esc(it.label)}</button>`).join("");
+  menu.classList.remove("hidden");
+  menu.style.left = Math.max(4, Math.min(e.clientX, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(4, Math.min(e.clientY, innerHeight - menu.offsetHeight - 8)) + "px";
+  for (const b of menu.querySelectorAll("[data-m]")) b.onclick = () => { closeMenu(); items[Number(b.dataset.m)].run(); };
+}
+function closeMenu() { menu.classList.add("hidden"); }
+document.addEventListener("click", (e) => { if (!menu.contains(e.target)) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+addEventListener("blur", closeMenu);
+addEventListener("scroll", closeMenu, true);
+
+function paperMenu(e, pid) {
+  const p = papers.find((x) => x.id === pid);
+  const all = reviews.filter((r) => r.paper_id === pid);
+  const open = all.filter(isOpen);
+  const pick = (rs) => { selected.clear(); for (const r of rs) selected.add(r.review_id); render(); };
+  const none = (rs) => rs.length ? "" : "No open reviews";
+  openMenu(e, [
+    { label: "Open the manuscript (PDF)", disabled: p && p.download_cmd ? "" : "No manuscript link on the workspace", run: () => openFile({ kind: "manuscript", paper_id: pid }, "the manuscript") },
+    { label: "Paper details", run: () => paperWindow(pid) },
+    { label: `Read the submitted reviews (${all.filter(isDone).length})`, disabled: all.some(isDone) ? "" : "No submitted reviews", run: () => reviewsWindow(all.filter(isDone).sort((a, b) => roundOrder(a) - roundOrder(b)).map((r) => r.review_id)) },
+    { label: "Find reviewers and invite…", run: () => pickerWindow(pid) },
+    { label: `Message the senior editor${p && p.editor ? ` (${p.editor.replace(/\s*\(\d+\)\s*$/, "")})` : ""}…`, disabled: viewerNote(), run: () => staffWindow(pid) },
+    { label: folded.has(pid) ? "Show its reviews" : "Hide its reviews", run: () => { folded.has(pid) ? folded.delete(pid) : folded.add(pid); saveFolded(); render(); } },
+    "-",
+    { label: `Select its reviews (${all.length})`, disabled: all.length ? "" : "No reviews", run: () => pick(all) },
+    { label: `Remind the open reviewers (${open.length})…`, disabled: viewerNote() || none(open), run: () => { pick(open); messageWindow(reminderFor(open)); } },
+    { label: `Message the open reviewers (${open.length})…`, disabled: viewerNote() || none(open), run: () => { pick(open); messageWindow(); } },
+    { label: `Extend the open deadlines (${open.length})…`, disabled: viewerNote() || none(open), run: () => { pick(open); extendForm(); } },
+  ]);
+}
+// The reminder template that fits these reviews.
+const reminderFor = (rs) => rs.some((r) => r.overdue) ? "Reminder: review overdue" : rs.every((r) => /^confirmed/i.test(r.state)) ? "Reminder: review due soon" : "Invitation not answered";
+const isDone = (r) => /^(received|submitted)/i.test(r.state);
+function reviewMenu(e, rid) {
+  if (!selected.has(rid)) { selected.clear(); selected.add(rid); render(); }
+  const n = selected.size, many = n > 1 ? ` (${n} selected)` : "";
+  const r = reviews.find((x) => x.review_id === rid);
+  openMenu(e, [
+    { label: `Send a reminder${many}…`, disabled: viewerNote() || (r && isOpen(r) ? "" : "Only for open reviews"), run: () => messageWindow(reminderFor([r])) },
+    { label: "Read the review and its attachments", disabled: r && isDone(r) ? "" : "Not submitted yet", run: () => reviewsWindow([rid]) },
+    { label: "Review details", run: () => reviewDetails(rid) },
+    "-",
+    { label: `Message${many}…`, disabled: viewerNote(), run: () => messageWindow() },
+    { label: `Extend deadline${many}…`, disabled: viewerNote(), run: extendForm },
+    { label: `Cancel request${many}…`, danger: true, disabled: viewerNote(), run: cancelForm },
+  ]);
+}
+function assignmentMenu(e, id) {
+  const a = assignments.find((x) => x.review_id === id);
+  if (!a) return;
+  openMenu(e, [
+    { label: "Open the paper (files)…", disabled: a.details_cmd ? "" : "No link to the files in the workspace", run: () => submissionFiles(id) },
+    { label: "Read the reviews", disabled: a.can_inspect ? "" : "Available once your review is submitted", run: () => popOut("inspect", { review: id }, `Reviews of ${a.number}`, [960, 980], () => inspect(id)) },
+    { label: "Details and status", run: () => assignmentDetails(id) },
+    { label: `E-mail ${a.requested_by}`, disabled: a.requester_email ? "" : "No e-mail address shown", run: () => {
+      location.href = `mailto:${a.requester_email}?subject=${encodeURIComponent(`${S.journal ? S.journal.name + " " : ""}${a.number}: review ${a.review_id}`)}`; } },
+    { label: "Copy the paper number", run: () => navigator.clipboard.writeText(a.number) },
+  ]);
+}
+
+function reviewsWindow(ids) {
+  const r = reviews.find((x) => x.review_id === ids[0]);
+  popOut("reviews", { ids: ids.join(",") }, ids.length === 1 && r ? `Review by ${r.reviewer}` : `${ids.length} reviews — ${r ? r.paper_id : ""}`, [960, 980], () => readReviews(ids));
+}
+function pickerWindow(pid) {
+  const p = papers.find((x) => x.id === pid);
+  popOut("picker", { paper: pid }, `Reviewers and automatic invitations — ${p ? p.number : pid}`, [1440, 960], () => autoForm(pid));
+}
+function staffWindow(pid) {
+  const p = papers.find((x) => x.id === pid);
+  popOut("staff", { paper: pid }, `Message the editors — ${p ? p.number : pid}`, [900, 860], () => staffForm(pid));
+}
+function paperWindow(pid) {
+  const p = papers.find((x) => x.id === pid);
+  popOut("paper", { paper: pid }, p ? p.number : pid, [860, 820], () => paperDetails(pid));
+}
+
+// Download a file from PaperPlaza and show it (its own window in the app, a tab in a browser).
+async function openFile(req, what) {
+  const tab = NATIVE ? null : window.open("about:blank", "_blank");
+  try {
+    const f = await api("file", req, `Downloading ${what} from PaperPlaza…`);
+    if (NATIVE) native({ cmd: "pdf", url: f.url, title: f.name, path: f.path });
+    else if (tab) tab.location = f.url;
+    else location.href = f.url;
+  } catch (e) { if (tab) tab.close(); say(e.message); }
+}
+const fileButtons = (files, req) => `<div class="files">${files.map((f, i) => `<button data-file="${i}" title="${esc(f.about)}">Open ${esc(f.label)}${f.about ? ` <span class="muted small">(${esc(f.about)})</span>` : ""}</button>`).join("")}</div>`;
+function wireFiles(el, files, req) {
+  for (const b of el.querySelectorAll("[data-file]")) b.onclick = () => { const f = files[Number(b.dataset.file)]; openFile({ ...req, command: f.command, label: f.label }, f.label.toLowerCase()); };
+}
+// Reviewer: the files PaperPlaza lists for the submission.
+async function submissionFiles(id) {
+  const a = assignments.find((x) => x.review_id === id);
+  if (!a) return;
+  let files;
+  try { files = (await api("submission_files", { review_id: id }, "Reading the submission files from PaperPlaza…")).files; } catch (e) { return say(e.message); }
+  if (files.length === 1) return openFile({ kind: "submission", review_id: id, command: files[0].command, label: files[0].label }, "the file");
+  openDialog(`Files of ${a.number}`, files.length ? fileButtons(files) : `<div class="muted">PaperPlaza lists no files for this submission (it shows them only while the paper is under review).</div>`, `<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+  wireFiles($("dlgBody"), files, { kind: "submission", review_id: id });
+}
+
+const longText = (t) => `<div class="qa"><div class="a">${esc(t)}</div></div>`;
+// Read reviews one after the other (editor), all in one dialog.
+async function readReviews(ids) {
+  const rs = ids.map((id) => reviews.find((r) => r.review_id === id)).filter(Boolean);
+  if (!rs.length) return;
+  const title = rs.length === 1 ? `Review by ${rs[0].reviewer}` : `${rs.length} reviews — ${rs[0].paper_id}`;
+  openDialog(title, `<div id="rvList"></div><div id="rvMsg" class="muted small">Reading from PaperPlaza…</div>`, `<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+  for (const r of rs) {
+    let body, files = [];
+    try {
+      const j = await api("review_text", { review_id: r.review_id });
+      body = j.review.answers.length ? j.review.answers.map((a) => `<div class="qa"><div class="q">${esc(a.question)}</div><div class="a">${esc(a.answer)}</div></div>`).join("") : `<div class="muted small">The form is empty.</div>`;
+      files = j.review.attachments || [];
+    } catch (e) { body = `<div class="err small">${esc(e.message)}</div>`; }
+    if (!$("rvList")) return;
+    $("rvList").insertAdjacentHTML("beforeend", `<div class="item" id="rv${esc(r.review_id)}"><div><strong>${esc(r.reviewer)}</strong> <span class="muted small">(${esc(r.pin)}) · review ${esc(r.review_id)} · reviewer ${esc(r.reviewer_no)} · ${esc(roundOf(r).toLowerCase())} · ${esc(r.status_raw)}</span></div>${files.length ? fileButtons(files) : ""}${body}</div>`);
+    wireFiles($("rv" + r.review_id), files, { kind: "review", review_id: r.review_id });
+  }
+  if ($("rvMsg")) $("rvMsg").remove();
+}
+// The reviews of a paper you reviewed (reviewer).
+async function inspect(id) {
+  const a = assignments.find((x) => x.review_id === id);
+  openDialog(`Reviews of ${a ? a.number : ""}`, `<div id="rvMsg" class="muted small">Reading from PaperPlaza…</div>`, `<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+  try {
+    const { inspection: x } = await api("inspect", { review_id: id });
+    if (!$("rvMsg")) return;
+    $("rvMsg").outerHTML = kv([["Title", esc(x.title)], ["Authors", esc(x.authors)], ["Current version", esc(x.current_version)], ["Status", esc(x.current_status)], ["Type", esc(x.kind)]]) +
+      `<div class="muted small">You may only see the reviews of the versions you reviewed yourself.</div>` +
+      (x.versions.map((v) => `<h4 style="margin:16px 0 4px">${esc(v.heading)}</h4>` +
+        v.reviews.map((r) => `<div class="item ${r.mine ? "good" : ""}"><div><strong>Reviewer ${esc(r.reviewer_no)}</strong>${r.mine ? " (you)" : ""} <span class="muted small">· review ${esc(r.review_id)} · recommendation ${esc(r.recommendation || "none")}</span></div>${r.comments ? longText(r.comments) : `<div class="muted small">No comments to the author.</div>`}</div>`).join("") +
+        v.decisions.map((d) => `<div class="note small">${esc(d)}</div>`).join("")).join("") || `<div class="muted">No reviews can be shown.</div>`);
+  } catch (e) { if ($("rvMsg")) { $("rvMsg").className = "err small"; $("rvMsg").textContent = e.message; } }
+}
+
+const kv = (rows) => `<dl class="kv">${rows.filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+function closeOnly() { $("dClose").onclick = () => dlg.close(); }
+function assignmentDetails(id) {
+  const a = assignments.find((x) => x.review_id === id);
+  if (!a) return;
+  openDialog(`${a.number} — review ${a.review_id}`, kv([
+    ["Title", esc(a.title)], ["Authors", esc(a.authors)], ["Type", esc(a.kind)], ["Version", esc(a.version)],
+    ["Status", `${esc(a.status_raw)}${a.reminders ? ` · ${a.reminders} reminder${a.reminders === 1 ? "" : "s"}` : ""}`],
+    ["Due", a.due ? `<span class="${a.overdue ? "overdue" : ""}">${fmt(a.due)}</span>` : ""],
+    ["Recommendation", esc(a.recommendation)], ["Reviewer number", esc(a.reviewer_no)],
+    ["Requested by", `${esc(a.requested_by)} <span class="muted">(${esc(a.requester_role)})</span>${a.requester_email ? ` · <a href="mailto:${esc(a.requester_email)}">${esc(a.requester_email)}</a>` : ""}`],
+  ]), `<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+}
+function reviewDetails(rid) {
+  const r = reviews.find((x) => x.review_id === rid);
+  if (!r) return;
+  openDialog(`${r.reviewer} — review ${r.review_id}`, kv([
+    ["Paper", `${esc(r.paper_id)} — ${esc(r.paper_title)}`], ["Version", esc(roundOf(r))], ["Reviewer", `${esc(r.reviewer)} (${esc(r.pin)})`],
+    ["Reviewer number", esc(r.reviewer_no)], ["Status", `${esc(r.status_raw)}${r.thanked ? " · thanked" : ""}`],
+    ["Due", r.due ? `<span class="${r.overdue ? "overdue" : ""}">${fmt(r.due)}</span>` : ""],
+    ["Reminders", r.reminders ? String(r.reminders) : ""], ["Recommendation", esc(r.recommendation)],
+  ]), `<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+}
+async function paperDetails(pid) {
+  const p = papers.find((x) => x.id === pid);
+  if (!p) return;
+  const rs = reviews.filter((r) => r.paper_id === pid);
+  const facts = kv([
+    ["Title", esc(p.title)], ["Authors", esc(p.authors)], ["Type", esc(p.kind)], ["Status", esc(p.status)],
+    ["Received", esc(p.received)], ["Latest decision", esc(p.latest_decision)], ["Next deadline", esc(p.next_due)],
+    ["Editor", esc(p.editor)], ["Handled by", esc(p.handled_by)],
+    ["Reviews", rs.length ? rs.map((r) => `${esc(r.reviewer)} <span class="muted small">· ${esc(r.status_raw)}</span>`).join("<br>") : "none"],
+  ]);
+  openDialog(`${p.number}`, facts + `<div id="pAbs" class="muted small">Reading the abstract from PaperPlaza…</div>`,
+    `${p.download_cmd ? `<button id="pPdf">Open the manuscript (PDF)</button>` : ""}<button class="primary" id="dClose">Close</button>`);
+  closeOnly();
+  if ($("pPdf")) $("pPdf").onclick = () => openFile({ kind: "manuscript", paper_id: pid }, "the manuscript");
+  try {
+    const j = await api("paper_details", { paper_id: pid });
+    if ($("pAbs")) $("pAbs").outerHTML = kv([["Keywords", esc((j.keywords || []).join("; "))], ["Abstract", `<div style="white-space:pre-wrap">${esc(j.abstract)}</div>`]]);
+  } catch (e) { if ($("pAbs")) { $("pAbs").className = "err small"; $("pAbs").textContent = e.message; } }
+}
+
+// A message to the paper's editors through its Contact page on PaperPlaza
+// (archived with the submission). Only the handlers listed there can be chosen.
+async function staffForm(pid) {
+  const p = papers.find((x) => x.id === pid);
+  if (!p) return say(`Paper ${pid} is not loaded; reload the list in the main window.`);
+  let j;
+  try {
+    j = await api("staff_contacts", { paper_id: pid }, `Opening the Contact page of ${p.number} on PaperPlaza…`);
+    await loadTemplates().catch(() => {});
+  } catch (e) { return say(e.message); }
+  if (!j.handlers.length) return say(`The Contact page of ${p.number} lists no editors to write to.`);
+  const se = j.handlers.find((h) => /senior editor/i.test(h.role)) || j.handlers[0];
+  const greeting = `Dear ${se.name.split(" ")[0]},\n\n\n\nBest regards,\n${tpl.signature || ""}`;
+  openDialog(`Message the editors — ${p.number}`, `
+    <div class="note small">${esc(p.number)} — ${esc(p.title)}<br>Sent through the paper's <em>Contact</em> page on PaperPlaza, so it is archived with the submission.</div>
+    <label>To</label>
+    <div>${j.handlers.map((h, i) => `<label class="inline"><input type="checkbox" data-h="${i}" ${h === se ? "checked" : ""}> ${esc(h.name)}
+      <span class="muted small">(${esc(h.role)}, ${esc(h.email)})</span></label>`).join("<br>")}</div>
+    <label for="sCc">Cc <span class="muted small">(optional, comma-separated e-mail addresses of editorial staff)</span></label><input id="sCc" type="text">
+    <label for="sSubj">Subject</label><input id="sSubj" type="text" value="${esc(j.subject)}">
+    <label for="sMsg">Message</label><textarea id="sMsg" style="min-height:280px">${esc(greeting)}</textarea>
+    <label for="sFile">Attachment <span class="muted small">(optional, under 5 MB)</span></label><input id="sFile" type="file">
+    <div><label class="inline"><input type="checkbox" id="sEyes"> Archive for my eyes only</label>
+      <label class="inline"><input type="checkbox" id="sNoCopy"> Do not send me a copy</label></div>
+    <div id="sDone"></div><div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button class="primary" id="dNext">Send…</button>`);
+  $("dClose").onclick = () => dlg.close();
+  const m = $("sMsg");
+  m.focus();
+  m.setSelectionRange(greeting.indexOf("\n\n") + 2, greeting.indexOf("\n\n") + 2);
+  $("dNext").onclick = async () => {
+    $("dErr").textContent = "";
+    const to = j.handlers.filter((h, i) => document.querySelector(`[data-h="${i}"]`).checked);
+    const msg = $("sMsg").value, subject = $("sSubj").value.trim(), cc = $("sCc").value.trim();
+    if (!to.length) { $("dErr").textContent = "Choose at least one recipient."; return; }
+    if (!subject) { $("dErr").textContent = "Write a subject."; return; }
+    if (!msg.trim()) { $("dErr").textContent = "Write a message."; return; }
+    const f = $("sFile").files[0];
+    if (f && f.size > 5 * 1024 * 1024) { $("dErr").textContent = "The attachment is larger than 5 MB."; return; }
+    const opts = [$("sEyes").checked ? "archived for your eyes only" : "", $("sNoCopy").checked ? "no copy to you" : "copy to you"].filter(Boolean).join(" · ");
+    const shown = `To: ${to.map((h) => `${h.name} (${h.role}) <${h.email}>`).join(", ")}${cc ? `\nCc: ${cc}` : ""}\nSubject: ${subject}${f ? `\nAttachment: ${f.name}` : ""}\n${opts}\n\n${msg}`;
+    if (!(await ask(shown, "Send now", "Back"))) return;
+    let attachment_b64 = "";
+    if (f) attachment_b64 = await new Promise((res) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(",")[1] || ""); rd.readAsDataURL(f); });
+    $("dNext").disabled = true;
+    try {
+      const r = await api("staff_send", { paper_id: pid, to: to.map((h) => h.address), cc, subject, message: msg,
+        my_eyes_only: $("sEyes").checked, do_not_copy_me: $("sNoCopy").checked, attachment_name: f ? f.name : "", attachment_b64 }, "Sending the message on PaperPlaza…");
+      $("sDone").innerHTML = `<div class="item good"><span class="st">✓ ${esc(r.message)}</span></div>`;
+      $("dNext").classList.add("hidden");
+      $("dClose").classList.add("primary");
+    } catch (e) { $("dErr").textContent = e.message; $("dNext").disabled = false; }
+  };
+}
+
+// ------------------------------------------------- automatic invitations
+const schedFor = (pid) => schedules.find((s) => S.journal && s.journal === S.journal.code && s.paper_id === pid && s.state !== "done")
+  || schedules.find((s) => S.journal && s.journal === S.journal.code && s.paper_id === pid);
+function schedChip(pid) {
+  const s = schedFor(pid);
+  if (!s) return "";
+  const cls = s.problem ? "problem" : s.state === "active" ? "active" : "";
+  return ` <span class="chip ${cls}" title="${esc(s.problem || "")}">Auto: ${esc(s.state)} · ${s.counts.accepted}/${s.needed} accepted</span>`;
+}
+async function loadSchedules() {
+  try { schedules = (await api("schedules")).schedules; } catch (e) { schedules = []; }
+  const active = schedules.filter((s) => s.state === "active").length;
+  $("btnSched").textContent = `Automatic invitations${schedules.length ? ` (${active} active)` : ""}`;
+  $("btnSched").classList.toggle("hidden", mode !== "editor" && !schedules.length);
+  syncMenus();
+}
+$("btnSched").onclick = () => schedList();
+
+function schedCard(s, buttons = true) {
+  const days = s.no_answer_days ? `, replace unanswered after ${s.no_answer_days} days` : "";
+  const order = s.queue.map((b, i) => `${i + 1}. ${esc(b.name)}${b.invited_on ? ` <span class="muted">(invited ${fmt(b.invited_on)})</span>` : ""}`).join(" · ");
+  const canEdit = mode === "editor" && S.journal && S.journal.code === s.journal && papers.some((p) => p.id === s.paper_id);
+  const log = s.log.slice(-40).reverse().map((l) => `${esc(l.at)}  ${esc(l.text)}`).join("\n");
+  return `<div class="item ${s.problem ? "bad" : ""}">
+    <div><strong>${esc(s.paper_number)}</strong> — ${esc(s.title)} <span class="chip ${s.state === "active" ? "active" : ""}">${esc(s.state)}</span></div>
+    <div class="small muted">${esc(s.journal.toUpperCase())} · ${s.needed} needed, ${s.at_once} invited at once${days} · last check ${esc(s.last_check || "never")}</div>
+    <div class="small">${s.counts.accepted} accepted · ${s.counts.pending} awaiting an answer · ${s.counts.lost} declined or canceled</div>
+    ${s.problem ? `<div class="err small">${esc(s.problem)}</div>` : ""}
+    <div class="small" style="margin-top:4px">${order}</div>
+    <details><summary class="small muted">Log</summary><div class="log">${log}</div></details>
+    ${buttons ? `<div class="row" style="margin-top:8px">
+      ${s.state !== "done" ? `<button data-sact="run" data-sid="${s.id}">Check now</button>` : ""}
+      ${s.state === "active" ? `<button data-sact="pause" data-sid="${s.id}">Pause</button>` : ""}
+      ${s.state === "paused" ? `<button data-sact="resume" data-sid="${s.id}">Resume</button>` : ""}
+      ${canEdit && s.state !== "done" ? `<button data-sact="edit" data-sid="${s.id}">Edit…</button>` : ""}
+      <button class="link small" data-sact="delete" data-sid="${s.id}">Delete</button></div>` : ""}
+  </div>`;
+}
+function wireCards() {
+  for (const b of document.querySelectorAll("[data-sact]")) b.onclick = async () => {
+    const id = Number(b.dataset.sid), s = schedules.find((x) => x.id === id);
+    try {
+      if (b.dataset.sact === "edit") return pickerWindow(s.paper_id);
+      if (b.dataset.sact === "delete" && !(await ask(`Delete the automatic invitations of ${s.paper_number}? Invitations already sent are not affected.`, "Delete"))) return;
+      const j = b.dataset.sact === "run" ? await api("schedule_run", { id }, "Checking on PaperPlaza…")
+        : b.dataset.sact === "delete" ? await api("schedule_delete", { id })
+        : await api("schedule_set", { id, state: b.dataset.sact === "pause" ? "paused" : "active" });
+      schedules = j.schedules;
+      tell("schedules");
+      schedList(j.report);
+      render();
+      loadSchedules();
+    } catch (e) { say(e.message); }
+  };
+}
+function schedList(report) {
+  const intro = `<div class="note small">Schedules are checked every 30 minutes while this app is open (and with <code>docket run-schedules</code>).
+    ${S.viewer ? "<strong>Viewer mode:</strong> checks only record what would be done; nothing is sent." : ""}</div>`;
+  const rep = report && report.length ? `<div class="note small">${report.map(esc).join("<br>")}</div>` : "";
+  openDialog("Automatic invitations", intro + rep + (schedules.length ? schedules.map((s) => schedCard(s)).join("") : `<div class="muted">No schedules yet. Use “Automatic invitations…” on a paper.</div>`),
+    `<button class="primary" id="dClose">Close</button>`);
+  $("dClose").onclick = () => dlg.close();
+  wireCards();
+}
+
+async function autoForm(pid) {
+  const p = papers.find((x) => x.id === pid);
+  if (!p) return say(`Paper ${pid} is not loaded; reload the list in the main window.`);
+  const ex = schedules.find((s) => s.journal === S.journal.code && s.paper_id === pid && s.state !== "done");
+  let cands, info, total = 0, matching = 0;
+  try {
+    const j = await api("candidates", { paper_id: pid }, "Reading the paper and your Reviewers list from PaperPlaza (large page, this can take a while)…");
+    ({ candidates: cands, paper: info, total, matching } = j);
+  } catch (e) { say(e.message); return; }
+  const version = p.number.split(".").pop();
+  const onPaper = new Map(reviews.filter((r) => r.paper_id === pid && !r.from_submission && r.version === version).map((r) => [r.pin, r.state]));
+  const queue = ex ? ex.queue.map((b) => ({ ...b, in_list: true })) : [];
+  const dbDefault = (info.keywords || []).join(" OR ");
+  openDialog(`Reviewers and automatic invitations — ${p.number}`, `
+    <div class="note small">The tool keeps <em>invited at once</em> reviewers invited or accepted for this version, taking names from the order on the left.
+      When someone declines (or, if ticked, does not answer in time and is canceled), the next name is invited. It stops when <em>needed</em> reviewers have accepted.
+      Reviews you requested by hand count, and are never canceled by the tool.
+      ${S.viewer ? "<br><strong>Viewer mode:</strong> the schedule is saved and checked, but nothing is sent and your Reviewers list is not changed." : ""}
+      <br><em>Invite now</em> sends the invitations right away to everyone in the order who has not been invited yet.</div>
+    <div class="row">
+      <label class="inline">Reviewers needed <input type="text" class="num" id="aNeeded" value="${ex ? ex.needed : 2}"></label>
+      <label class="inline">Invited at once <input type="text" class="num" id="aAtOnce" value="${ex ? ex.at_once : 3}"></label>
+      <label class="inline"><input type="checkbox" id="aNoAns" ${!ex || ex.no_answer_days ? "checked" : ""}> Replace unanswered invitations after
+        <input type="text" class="num" id="aDays" value="${ex && ex.no_answer_days ? ex.no_answer_days : 7}"> days</label>
+    </div>
+    <div class="row">
+      <label class="inline">Review deadline <input type="date" id="aDue" style="width:auto"> <span class="muted small">(Invite now only; empty: PaperPlaza's default)</span></label>
+      <label class="inline"><input type="checkbox" id="aAttach" ${ex && ex.invite && ex.invite.attach ? "checked" : ""}> Attach the manuscript</label>
+      <label class="inline"><input type="checkbox" id="aCopy" ${ex && ex.invite && ex.invite.copy ? "checked" : ""}> Send me a copy</label>
+    </div>
+    <div id="aConfirm"></div>
+    <div class="cols" style="margin-top:12px">
+      <div><label>Invitation order <span class="muted small">(the first ones are invited first)</span></label><div class="list" id="aQueue"></div>
+        <div class="row" style="margin-top:8px"><button id="aAddList" class="hidden"></button><span class="small" id="aAddMsg"></span></div></div>
+      <div><label>Recommended reviewers <span class="muted small" id="aCount"></span></label>
+        <div class="small muted" style="margin-bottom:6px">Paper keywords: ${esc((info.keywords || []).join("; ") || "none found")}.
+          Score: shared keywords (rare ones count more) and shared words with the title${info.abstract_text ? " and abstract" : ""}. Conflicts of interest are listed last.</div>
+        <div class="row" style="margin:0 0 6px; flex-wrap:nowrap">
+          <input type="search" id="aSearch" placeholder="Filter by name, affiliation, keyword, PIN…" style="flex:1; width:auto">
+          <label class="inline small" title="PINs are given in order of registration: a high PIN is usually a younger researcher">PIN from <input type="text" class="num" id="aMinPin" inputmode="numeric" placeholder="any"></label></div>
+        <div class="list" id="aCands"></div>
+        <details style="margin-top:8px" id="aDb"><summary class="small">Search the whole PIN database (people not on your Reviewers list)</summary>
+          <div class="row" style="margin-top:6px">
+            <select id="aDbField" style="width:auto"><option value="Keywords">Keywords</option><option value="Surname">Surname</option><option value="Email_address">E-mail</option><option value="Affiliation">Affiliation</option><option value="PIN">PIN</option></select>
+            <input type="text" id="aDbQuery" value="${esc(dbDefault)}" style="flex:1; width:auto" title="AND, OR, NOT and parentheses work as on PaperPlaza">
+            <button id="aDbGo">Search</button></div>
+          <div class="small muted" id="aDbMsg">Results are added to the list above and ranked with everyone else; up to 1000 per search.</div>
+        </details></div>
+    </div>
+    <div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button id="dInvite">Invite now…</button><button class="primary" id="dSave">${ex ? "Save changes" : "Save and start"}</button>`);
+  const inQueue = (pin) => queue.some((b) => b.pin === pin);
+  function drawQueue() {
+    $("aQueue").innerHTML = queue.length ? queue.map((b, i) => `<div class="li"><span class="muted">${i + 1}.</span>
+      <div class="grow">${esc(b.name)} <span class="muted small">(${esc(b.pin)})${b.invited_on ? ` · invited ${fmt(b.invited_on)}` : ""}${onPaper.has(b.pin) ? ` · ${esc(onPaper.get(b.pin))}` : ""}</span>
+        ${b.in_list ? "" : `<div class="small" style="color:var(--warn)">not on your Reviewers list yet (added when invited)</div>`}
+        ${b.skipped ? `<div class="small err" style="margin:0">Skipped: ${esc(b.skipped)}</div>` : ""}</div>
+      <button data-q="up" data-i="${i}" ${i ? "" : "disabled"}>↑</button><button data-q="down" data-i="${i}" ${i < queue.length - 1 ? "" : "disabled"}>↓</button>
+      <button data-q="rm" data-i="${i}" ${b.invited_on ? "disabled title='Already invited'" : ""}>✕</button></div>`).join("")
+      : `<div class="li muted small">Add names from the recommendations →</div>`;
+    for (const b of $("aQueue").querySelectorAll("[data-q]")) b.onclick = () => {
+      const i = Number(b.dataset.i);
+      if (b.dataset.q === "rm") queue.splice(i, 1);
+      else { const j = b.dataset.q === "up" ? i - 1 : i + 1; [queue[i], queue[j]] = [queue[j], queue[i]]; }
+      drawQueue(); drawCands();
+    };
+    const missing = queue.filter((b) => !b.in_list);
+    $("aAddList").classList.toggle("hidden", !missing.length);
+    $("aAddList").textContent = `Add ${missing.length} to my Reviewers list now`;
+    $("aAddList").disabled = !!S.viewer;
+    $("aAddList").title = S.viewer ? "Viewer mode: your Reviewers list cannot be changed" : "Adds them on PaperPlaza, as “Add to list” does";
+  }
+  function drawCands() {
+    $("aCount").textContent = $("aSearch").value.trim() || $("aMinPin").value.trim() ? `(${matching} of ${total} match, best first)` : `(${total} people, best match first)`;
+    $("aCands").innerHTML = cands.map((c) => {
+      const why = inQueue(c.pin) ? "in the order" : onPaper.has(c.pin) ? onPaper.get(c.pin) : !c.available ? "not available" : "";
+      return `<div class="li"><span class="badge" title="Recommendation score (0–100)">${c.score}</span><div class="grow">${esc(c.name)} <span class="muted small">(${esc(c.pin)}) · ${esc(c.affiliation)}</span>
+        ${c.in_list ? "" : `<span class="small" style="color:var(--warn)"> · not on your list</span>`}
+        ${c.conflict ? `<div class="small err" style="margin:0">Possible conflict: ${esc(c.conflict)}</div>` : ""}
+        ${c.reasons.map((r) => `<div class="small" style="color:var(--ok)">${esc(r)}</div>`).join("")}</div>
+        ${why ? `<span class="muted small">${esc(why)}</span>` : `<button data-add="${esc(c.pin)}">Add</button>`}</div>`;
+    }).join("") || `<div class="li muted small">No match.</div>`;
+    for (const b of $("aCands").querySelectorAll("[data-add]")) b.onclick = () => {
+      const c = cands.find((x) => x.pin === b.dataset.add);
+      queue.push({ pin: c.pin, name: c.name, invited_on: null, in_list: c.in_list });
+      drawQueue(); drawCands();
+    };
+  }
+  async function query() {
+    try {
+      const j = await api("candidates", { paper_id: pid, q: $("aSearch").value.trim(), min_pin: $("aMinPin").value.trim() });
+      ({ candidates: cands, total, matching } = j);
+      drawCands();
+    } catch (e) { $("dErr").textContent = e.message; }
+  }
+  let timer;
+  $("aSearch").oninput = $("aMinPin").oninput = () => { clearTimeout(timer); timer = setTimeout(query, 250); };
+  $("aDbGo").onclick = async () => {
+    $("dErr").textContent = "";
+    try {
+      const j = await api("pin_search", { paper_id: pid, field: $("aDbField").value, query: $("aDbQuery").value }, "Searching the PIN database…");
+      $("aDbMsg").textContent = `${j.found} found, ${j.new} not seen before${j.more_pages ? ` (only the first pages were read; narrow the search to see more)` : ""}. They are now ranked in the list above.`;
+      await query();
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+  $("aAddList").onclick = async () => {
+    const missing = queue.filter((b) => !b.in_list);
+    try {
+      const j = await api("add_to_list", { paper_id: pid, pins: missing.map((b) => b.pin) }, `Adding ${missing.length} to your Reviewers list…`);
+      for (const r of j.results) if (r.ok) { const b = queue.find((x) => x.pin === r.pin); if (b) b.in_list = true; }
+      $("aAddMsg").innerHTML = j.results.map((r) => `<div class="${r.ok ? "" : "err"}">${r.ok ? "✓" : "✗"} ${esc(r.message)}</div>`).join("");
+      drawQueue(); await query();
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+  drawQueue(); drawCands();
+  $("dClose").onclick = () => dlg.close();
+  const invOpts = () => ({ attach: $("aAttach").checked, copy: $("aCopy").checked });
+  $("dInvite").disabled = !!S.viewer;
+  $("dInvite").title = S.viewer ? "Viewer mode: no invitation can be sent" : "";
+  $("dInvite").onclick = () => {
+    $("dErr").textContent = "";
+    const todo = queue.filter((b) => !b.invited_on && !onPaper.has(b.pin));
+    if (!todo.length) { $("dErr").textContent = "Add reviewers to the invitation order first (people already invited for this version are skipped)."; return; }
+    const opts = { ...invOpts(), deadline: $("aDue").value || null };
+    $("aConfirm").innerHTML = `<div class="note"><strong>Send ${todo.length} invitation${todo.length === 1 ? "" : "s"} for ${esc(p.number)}?</strong>
+      <div class="small" style="margin:6px 0">${todo.map((b) => `${esc(b.name)} <span class="muted">(${esc(b.pin)})</span>${b.in_list ? "" : " — first added to your Reviewers list"}`).join("<br>")}</div>
+      <div class="small muted">Deadline: ${opts.deadline ? esc(fmt(opts.deadline)) : "PaperPlaza's default"} · manuscript ${opts.attach ? "attached" : "not attached"} · ${opts.copy ? "copy to you" : "no copy to you"} · PaperPlaza's “Request a review” letter</div>
+      <div class="row" style="margin-top:8px"><button class="primary" id="aGo">Send ${todo.length} invitation${todo.length === 1 ? "" : "s"}</button><button id="aNo">Not now</button></div></div>`;
+    $("aConfirm").scrollIntoView({ block: "nearest" });
+    $("aNo").onclick = () => { $("aConfirm").innerHTML = ""; };
+    $("aGo").onclick = async () => {
+      $("aGo").disabled = $("aNo").disabled = true;
+      $("aGo").textContent = "Sending…";
+      try {
+        const j = await api("invite", { paper_id: pid, pins: todo.map((b) => b.pin), options: opts }, "Sending the invitations on PaperPlaza (it reads your whole Reviewers list, this can take a minute)…");
+        reviews = j.reviews;
+        tell("reviews", reviews);
+        onPaper.clear();
+        for (const r of reviews.filter((r) => r.paper_id === pid && !r.from_submission && r.version === version)) onPaper.set(r.pin, r.state);
+        for (const r of j.results) { const b = queue.find((x) => x.pin === r.pin); if (b && r.ok) b.in_list = true; }
+        $("aConfirm").innerHTML = `<div class="note small">${j.results.map((r) => `<div class="${r.ok ? "" : "err"}" style="margin:0">${r.ok ? "✓" : "✗"} ${esc(r.message)}</div>`).join("")}</div>`;
+        drawQueue(); drawCands(); render();
+      } catch (e) { $("aConfirm").innerHTML = ""; $("dErr").textContent = e.message; }
+    };
+  };
+  $("dSave").onclick = async () => {
+    $("dErr").textContent = "";
+    const num = (id) => Number($(id).value.trim());
+    try {
+      const j = await api("schedule_save", { id: ex ? ex.id : null, paper_id: pid, needed: num("aNeeded"), at_once: num("aAtOnce"),
+        no_answer_days: $("aNoAns").checked ? num("aDays") : 0, queue: queue.map(({ pin, name }) => ({ pin, name })), options: invOpts() }, "Saving and checking on PaperPlaza…");
+      schedules = j.schedules;
+      tell("schedules");
+      const s = schedules.find((x) => x.id === j.id);
+      openDialog(`Automatic invitations — ${p.number}`, `<div class="note small">${(j.report || []).map(esc).join("<br>")}</div>` + schedCard(s), `<button class="primary" id="dClose">Close</button>`);
+      $("dClose").onclick = () => dlg.close();
+      wireCards();
+      render(); loadSchedules();
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+}
+
+// ------------------------------------------- menu bar and menu-bar icon
+// The app's menus follow the main window (src/app.rs builds them from this).
+const isCurrent = (r) => { const p = papers.find((x) => x.id === r.paper_id); return !!p && isCurrentRound(r, p); };
+const overdueOnes = () => mode === "editor" ? reviews.filter((r) => isCurrent(r) && /^confirm/i.test(r.state) && r.overdue) : [];
+// Invited, not yet accepted or declined (as the automatic invitations count them).
+const unansweredOnes = () => mode === "editor" ? reviews.filter((r) => isCurrent(r) && !/^(confirm|receiv|submit|cancel|declin)/i.test(r.state)) : [];
+let lastMenus = "";
+function syncMenus() {
+  if (!NATIVE || VIEW) return;
+  const editor = mode === "editor" && !!S.role;
+  const data = {
+    logged_in: !!S.logged_in, viewer: !!S.viewer, mode: S.role ? mode : "",
+    journal: S.journal ? S.journal.name : "",
+    journals: S.logged_in ? (S.journals || []).map((j) => ({ id: j.code, label: j.name, on: !!S.journal && S.journal.code === j.code })) : [],
+    roles: S.logged_in && S.journal ? (S.roles || []).map((r) => ({ id: r.command, label: r.label, on: !!S.role && S.role.command === r.command })) : [],
+    filters: S.role && FILTERS[mode] ? FILTERS[mode].map(([v, t]) => ({ id: v, label: t, on: $("fState").value === v })) : [],
+    include_all: { id: "include-all", label: $("includeAllLabel").textContent, on: $("includeAll").checked },
+    selected: editor ? selected.size : 0,
+    done_selected: editor ? selectedList().filter(isDone).length : 0,
+    overdue: editor ? overdueOnes().length : 0,
+    unanswered: editor ? unansweredOnes().length : 0,
+    schedules: schedules.map((s) => ({ id: String(s.id), label: `${s.paper_number} — ${s.state}, ${s.counts.accepted} of ${s.needed} accepted`, on: false })),
+    active: schedules.filter((s) => s.state === "active").length,
+    paused: schedules.filter((s) => s.state === "paused").length,
+  };
+  const text = JSON.stringify(data);
+  if (text !== lastMenus) { lastMenus = text; native({ cmd: "menus", data }); }
+}
+
+function selectOnly(rs) { selected.clear(); for (const r of rs) selected.add(r.review_id); if ($("fState").value !== "all" && rs.some((r) => !matchesState(r))) $("fState").value = "all"; render(); }
+// Select `rs` and open the message window with `template`, after checking there is someone to write to.
+function writeTo(rs, template, what) {
+  if (!S.role || mode !== "editor") return say("Open the Associate Editor role of a journal first.");
+  if (S.viewer) return say(viewerNote());
+  if (!rs.length) return say(`No ${what} in ${S.journal.name}.`);
+  selectOnly(rs);
+  messageWindow(template);
+}
+
+async function runSchedulesNow() {
+  if (!S.logged_in) return say("Log in first.");
+  try {
+    const j = await api("schedule_preview", {}, "Checking the automatic invitations on PaperPlaza…");
+    if (!j.lines.length) return say("No automatic invitations are active on this site.");
+    if (!j.any) return say("Nothing to send now.\n\n" + j.lines.join("\n"));
+    const note = S.viewer ? "\n\nViewer mode: nothing is sent, the log only records what would be done." : "";
+    if (!(await ask("The automatic invitations will now:\n\n" + j.lines.join("\n") + note, "Send now"))) return;
+    const r = await api("schedule_run", {}, "Sending the invitations on PaperPlaza…");
+    schedules = r.schedules;
+    tell("schedules");
+    if (S.role && mode === "editor") await load();
+    schedList(r.report);
+    loadSchedules();
+  } catch (e) { say(e.message); }
+}
+
+async function setAllSchedules(state) {
+  try { schedules = (await api("schedule_set_all", { state })).schedules; tell("schedules"); loadSchedules(); render(); }
+  catch (e) { say(e.message); }
+}
+
+async function exportSettings() {
+  try {
+    const j = await api("settings_export", {}, "Exporting the settings…");
+    say(`Saved as ${j.path} (shown in the Finder).\n\nIt contains your logins and PINs for each site, your journal and role choices, your message templates and signature, and your automatic invitations. Passwords are not included: they stay in this Mac's Keychain, and on the other computer you type each one once.\n\nKeep this file private. On the other computer: File → Import Settings… in Docket.`);
+  } catch (e) { say(e.message); }
+}
+
+function importSettings() {
+  openDialog("Import settings", `
+    <div class="note small">Replaces this computer's Docket settings with the ones exported from another computer (File → Export Settings…):
+      logins and PINs, journal and role choices, message templates and signature, automatic invitations.
+      The current settings are first saved in a backup folder, and you are logged out. Passwords are not in the export: type them once at the next login.</div>
+    <label for="importFile">Settings file</label><input type="file" id="importFile" accept=".json,application/json">
+    <div class="err" id="dErr"></div>`,
+    `<button id="dClose">Cancel</button><button class="primary" id="dGo" disabled>Import</button>`);
+  $("dClose").onclick = () => dlg.close();
+  $("importFile").onchange = () => { $("dGo").disabled = !$("importFile").files.length; };
+  $("dGo").onclick = async () => {
+    $("dErr").textContent = "";
+    try {
+      const text = await $("importFile").files[0].text();
+      const j = await api("settings_import", { text }, "Importing the settings…");
+      dlg.close();
+      S = j; papers = []; reviews = []; assignments = []; selected.clear();
+      await loadSchedules();
+      renderHeader(); updateBar(); showLogin();
+      const active = schedules.filter((s) => s.state === "active").length;
+      say(`Settings imported. The previous ones are in\n${j.backup}\n\nLog in again (the password is asked once).` +
+        (active ? `\n\n${active} automatic invitation schedule${active === 1 ? " is" : "s are"} active. If Docket also stays open on the other computer, both will send them: pause them on one of the two.` : ""));
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+}
+
+// A command from the app's menus or the menu-bar icon.
+function menuCommand(action, arg) {
+  if (action === "find") {
+    const box = [...document.querySelectorAll("#dlg[open] input[type=search], #vMain:not(.hidden) #q")].find((x) => x.offsetParent);
+    if (box) { box.focus(); box.select(); }
+    return;
+  }
+  if (busyCount) {
+    $("busyNoClose").textContent = "Wait until this is finished.";
+    $("busyNoClose").classList.remove("hidden");
+    return;
+  }
+  if (dlg.open && action !== "show") return say(`Close “${$("dlgHead").textContent}” first.`);
+  if (!S.logged_in && !["show", "settings-export", "settings-import", "templates"].includes(action)) return say("Log in first.");
+  const editorOnly = () => { if (!S.role || mode !== "editor") { say("Open the Associate Editor role of a journal first."); return true; } return false; };
+  const run = {
+    show: () => {},
+    journal: () => switchJournal(arg),
+    role: () => openRole(arg).catch((e) => { say(e.message); renderHeader(); }),
+    logout: () => $("btnLogout").click(),
+    filter: () => { $("fState").value = arg; render(); },
+    "include-all": () => { $("includeAll").checked = !$("includeAll").checked; load(); },
+    fold: () => { for (const p of papers) folded.add(p.id); saveFolded(); render(); },
+    unfold: () => { folded.clear(); saveFolded(); render(); },
+    csv: () => $("btnCsv").click(),
+    templates: () => templatesForm(),
+    message: () => editorOnly() || messageWindow(),
+    extend: () => editorOnly() || extendForm(),
+    cancel: () => editorOnly() || cancelForm(),
+    read: () => editorOnly() || reviewsWindow(selectedList().filter(isDone).sort((a, b) => roundOrder(a) - roundOrder(b)).map((r) => r.review_id)),
+    clear: () => { selected.clear(); render(); },
+    "select-overdue": () => editorOnly() || selectOnly(overdueOnes()),
+    "select-unanswered": () => editorOnly() || selectOnly(unansweredOnes()),
+    "remind-overdue": () => writeTo(overdueOnes(), "Reminder: review overdue", "overdue reviews"),
+    "nudge-unanswered": () => writeTo(unansweredOnes(), "Invitation not answered", "unanswered invitations"),
+    "sched-list": () => schedList(),
+    "sched-run": runSchedulesNow,
+    "sched-pause": () => setAllSchedules("paused"),
+    "sched-resume": () => setAllSchedules("active"),
+    sched: () => {
+      const s = schedules.find((x) => String(x.id) === arg);
+      if (s && mode === "editor" && S.journal && S.journal.code === s.journal && papers.some((p) => p.id === s.paper_id)) pickerWindow(s.paper_id);
+      else schedList();
+    },
+    "settings-export": exportSettings,
+    "settings-import": importSettings,
+  }[action];
+  if (run) Promise.resolve(run()).catch((e) => say(e.message));
+}
+
+// A window of the app showing one dialog: its content comes from what the
+// main window loaded (nothing is read again from PaperPlaza).
+async function bootView() {
+  document.body.classList.add("sub");
+  S = await api("state");
+  const j = await api("snapshot");
+  setMode(j.mode);
+  papers = j.papers || []; reviews = j.reviews || []; assignments = j.assignments || [];
+  folded = new Set(j.folded || []);
+  await loadSchedules();
+  dlg.addEventListener("close", () => native({ cmd: "close" }));
+  const ids = (PARAMS.get("ids") || "").split(",").filter(Boolean);
+  for (const id of ids) selected.add(id);
+  const open = {
+    picker: () => autoForm(PARAMS.get("paper")),
+    message: () => contactForm({ template: PARAMS.get("template") || undefined }),
+    reviews: () => readReviews(ids),
+    inspect: () => inspect(PARAMS.get("review")),
+    paper: () => paperDetails(PARAMS.get("paper")),
+    staff: () => staffForm(PARAMS.get("paper")),
+  }[VIEW];
+  if (open) await open();
+  if (!dlg.open) {
+    if ($("ask").open) await new Promise((res) => $("ask").addEventListener("close", res, { once: true }));
+    else await say("This window has nothing to show (log in and load the list in the main window first).");
+    native({ cmd: "close" });
+  }
+}
+
+(VIEW ? bootView() : boot()).catch((e) => { document.body.insertAdjacentHTML("afterbegin", `<div class="err" style="padding:20px">${esc(e.message)}</div>`); });
+</script>
+</body>
+</html>

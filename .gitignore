@@ -1,0 +1,7 @@
+/target
+.DS_Store
+# Pages saved from the site, the values the tests expect from them, and
+# --trace output contain confidential review data.
+/captures/
+/trace*/
+expected.json

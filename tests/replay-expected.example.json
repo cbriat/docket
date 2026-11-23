@@ -1,0 +1,155 @@
+{
+  "_about": "Copy to expected.json next to your saved pages and fill in what your pages show. Every value here is made up. Keep the real file private: it names reviewers and papers.",
+  "replay": {
+    "Reviews261234": "Manage Reviews.html",
+    "Reviews261235": "Manage Reviews - Versions.html",
+    "Details400001": "Review Details.html",
+    "Details400002": "Review Details - AE.html",
+    "Inspect300001": "Inspect the Reviews.html",
+    "Download261234_01_MS__pdf": "PDF",
+    "Download_Review400002__pdf": "PDF",
+    "SubmissionDetails260001": "Reviewer's Workspace - After title click.html"
+  },
+  "papers": 7,
+  "paper": {
+    "id": "26-1234",
+    "reviews_cmd": "Reviews261234",
+    "reviews": 6,
+    "accepted": 3,
+    "lost": 3,
+    "open_review": "400003",
+    "canceled_review": {
+      "id": "400001",
+      "first_name": "Jane"
+    },
+    "received_review": {
+      "id": "400002",
+      "reviewer": "Doe, John (12345)",
+      "first_name": "John",
+      "recommendation": "1N",
+      "confidential": "Confidential comment to the editors",
+      "comments_start": "The paper studies",
+      "dates": "received on October 19, 2026 (accepted September 18, 2026, asked September 1, 2026)"
+    },
+    "title_start": "A Study",
+    "abstract_start": "This paper studies",
+    "keywords": [
+      "Keyword one",
+      "Keyword two",
+      "Keyword three"
+    ],
+    "authors": {
+      "count": 3,
+      "first_name": "Rossi, Mario",
+      "first_pin": "23456",
+      "affiliation": "Università di Esempio",
+      "affiliation_word": "esempio"
+    }
+  },
+  "candidates": {
+    "count": 800,
+    "keyword_match": {
+      "pin": "34567",
+      "keyword": "keyword one"
+    },
+    "unavailable_pin": "45678",
+    "queue": [
+      [
+        "34567",
+        "Smith, Ann"
+      ],
+      [
+        "56789",
+        "Müller, Karl"
+      ]
+    ]
+  },
+  "reviewer": {
+    "items": 100,
+    "submitted_count": 80,
+    "canceled": {
+      "id": "410001",
+      "requested_by": "Lee, Kim",
+      "requester_role": "Associate Editor, 67890",
+      "requester_email": "kim.lee@example.org",
+      "number": "26-0001",
+      "title_start": "On Something"
+    },
+    "submitted": {
+      "id": "300001",
+      "recommendation": "1N",
+      "number": "25-0001",
+      "version": "2",
+      "status": "Forwarded to publisher",
+      "other_review": "300002",
+      "other_comments": "The other reviewer's comments.",
+      "decision": "Ad hoc or interim decision on Version 1 of submission 25-0001: November 7, 2025 · New status: Accepted without changes as Technical Note"
+    }
+  },
+  "pin_search": {
+    "query": "delay",
+    "found": 25,
+    "total": 200,
+    "addable": 10,
+    "person": {
+      "pin": "78901",
+      "name": "Garcia, Ana",
+      "affiliation": "Example University"
+    },
+    "add": {
+      "pin": "89012",
+      "name": "Novak, Petr"
+    },
+    "already_listed": "90123"
+  },
+  "request": {
+    "submission": "26-1236",
+    "people": [
+      [
+        "11111",
+        "Ahmed, Sara (11111)"
+      ],
+      [
+        "22222",
+        "Žižek, Đuro (22222)"
+      ]
+    ],
+    "selected_pin": "33333"
+  },
+  "ifac": {
+    "pin": "44444",
+    "items": 50,
+    "review": {
+      "id": "420001",
+      "number": "26-0002",
+      "recommendation": "Publish subject to revision",
+      "requested_by": "Martin, Paul",
+      "requester_email": "paul.martin@example.org"
+    }
+  },
+  "files": {
+    "manuscript_cmd": "Download261234_01_MS__pdf",
+    "version2": {
+      "id": "26-1237",
+      "cmd": "Download261237_02_MS__pdf"
+    },
+    "page_instead": "26-1238",
+    "reviewer_paper": "26-0001",
+    "reviewer_details_cmd": "SubmissionDetails260001"
+  },
+  "versions": {
+    "paper": "26-1235",
+    "reviews_cmd": "Reviews261235",
+    "count": 6,
+    "own": [
+      "400010",
+      "400011"
+    ],
+    "previous": "25-5678"
+  },
+  "ui": {
+    "reviews": 12,
+    "warnings": 5,
+    "candidates_min_pin": "150000"
+  }
+}
