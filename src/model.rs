@@ -61,6 +61,8 @@ pub struct InviteResult {
 pub struct Candidate {
     pub pin: String,
     pub name: String,
+    /// As the site shows it ("Prof.", "Dr.", "Mr.", …); empty when not given.
+    pub title: String,
     pub affiliation: String,
     pub email: String,
     pub keywords: String,
@@ -259,6 +261,21 @@ pub fn parse_date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s.trim(), "%B %d, %Y").ok()
 }
 
+/// The kind of title, for filtering: "prof", "dr", "mr", "ms" (Ms., Miss),
+/// "mrs", "other" (Dipl., …) or "none". Spellings vary ("DR", "Dr..", "Herr.").
+pub fn title_group(title: &str) -> &'static str {
+    let t: String = title.chars().filter(|c| c.is_alphabetic()).collect::<String>().to_lowercase();
+    match t.as_str() {
+        "" => "none",
+        "prof" | "professor" => "prof",
+        "dr" => "dr",
+        "mr" | "herr" | "monsieur" => "mr",
+        "ms" | "miss" => "ms",
+        "mrs" => "mrs",
+        _ => "other",
+    }
+}
+
 /// "Doe, Jane (12345)" -> ("Doe, Jane", "12345")
 pub fn split_name_pin(s: &str) -> (String, String) {
     match NAME_PIN.captures(s.trim()) {
@@ -338,5 +355,7 @@ mod tests {
     fn names() {
         assert_eq!(split_name_pin("Doe, Jane (12345)"), ("Doe, Jane".into(), "12345".into()));
         assert_eq!(split_first_last("Smith, Ann B."), ("Ann B.".into(), "Smith".into()));
+        let groups: Vec<&str> = ["Prof.", "Dr.", "DR", "Dr..", "Mr.", "Herr.", "Ms.", "Miss", "Mrs.", "Dipl.", ""].iter().map(|t| title_group(t)).collect();
+        assert_eq!(groups, ["prof", "dr", "dr", "dr", "mr", "mr", "ms", "ms", "mrs", "other", "none"]);
     }
 }

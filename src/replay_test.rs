@@ -323,6 +323,9 @@ fn viewer_mode() {
     let same: Vec<_> = cands.iter().filter(|c| c.affiliation.to_lowercase().contains(&word)).collect();
     assert!(!same.is_empty() && same.iter().all(|c| c.conflict.is_some()), "{} people at {word}, not all flagged", same.len());
     assert_eq!(cands.len(), xn("candidates.count"));
+    // Titles as given ("Prof.", "Dr.", …); some people give none.
+    let group = |g: &str| cands.iter().filter(|c| crate::model::title_group(&c.title) == g).count();
+    assert!(["prof", "dr", "mr", "none"].iter().all(|g| group(g) > 0), "titles were not read");
     let c = cands.iter().find(|c| c.pin == x("candidates.keyword_match.pin")).unwrap();
     assert!(c.available && c.matches == [x("candidates.keyword_match.keyword")], "{:?}", c.matches);
     assert!(!cands.iter().find(|c| c.pin == x("candidates.unavailable_pin")).unwrap().available);
@@ -368,6 +371,7 @@ fn pins_and_details() {
     let (found, more) = s.search_pins("Keywords", &query, 5).unwrap();
     assert_eq!((found.len(), more), (xn("pin_search.found"), Some(xn("pin_search.total") as u32)));
     assert_eq!(found.iter().filter(|c| c.available && !c.in_list).count(), xn("pin_search.addable"), "addable");
+    assert!(found.iter().any(|c| crate::model::title_group(&c.title) == "prof"), "the Title column was not read");
     let c = found.iter().find(|c| c.pin == x("pin_search.person.pin")).unwrap();
     assert_eq!((c.name.clone(), c.affiliation.clone(), c.in_list), (x("pin_search.person.name"), x("pin_search.person.affiliation"), false));
     {

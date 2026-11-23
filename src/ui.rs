@@ -428,13 +428,17 @@ impl App {
                 // PINs are numbered in order of registration: a higher one is
                 // usually a younger researcher.
                 let min_pin = s("min_pin").trim().parse::<u64>().ok();
+                // Kinds of title to keep (see model::title_group); none listed: any.
+                let titles: Vec<String> = input.get("titles").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect()).unwrap_or_default();
                 let hit = |c: &&Candidate| {
                     let hay = format!("{} {} {} {} {}", c.name, c.pin, c.affiliation, c.email, c.keywords).to_lowercase();
-                    words.iter().all(|w| hay.contains(w)) && min_pin.is_none_or(|m| c.pin.parse::<u64>().is_ok_and(|p| p >= m))
+                    words.iter().all(|w| hay.contains(w))
+                        && min_pin.is_none_or(|m| c.pin.parse::<u64>().is_ok_and(|p| p >= m))
+                        && (titles.is_empty() || titles.iter().any(|t| t == crate::model::title_group(&c.title)))
                 };
                 let limit = input.get("limit").and_then(Value::as_u64).unwrap_or(150) as usize;
                 let shown: Vec<&Candidate> = all.iter().filter(hit).take(limit).collect();
-                let matching = if words.is_empty() && min_pin.is_none() { all.len() } else { all.iter().filter(hit).count() };
+                let matching = if words.is_empty() && min_pin.is_none() && titles.is_empty() { all.len() } else { all.iter().filter(hit).count() };
                 Ok(json!({"paper": info, "candidates": shown, "total": all.len(), "matching": matching,
                           "in_list": all.iter().filter(|c| c.in_list).count()}))
             }
@@ -917,6 +921,13 @@ mod tests {
         assert_eq!((young["matching"].as_u64(), pins(&young).len()), (Some(expect as u64), expect));
         let both = app.api("candidates", json!({"paper_id": paper, "min_pin": min, "q": x("paper.authors.affiliation_word")})).unwrap();
         assert!(pins(&both).iter().all(|&p| p >= floor));
+        // Title filter: only the chosen kinds, and all of them.
+        let group = |c: &Value| crate::model::title_group(c["title"].as_str().unwrap());
+        let seniors = app.api("candidates", json!({"paper_id": paper, "titles": ["prof", "dr"], "limit": 10000})).unwrap();
+        let list = seniors["candidates"].as_array().unwrap();
+        let expect = all["candidates"].as_array().unwrap().iter().filter(|c| ["prof", "dr"].contains(&group(c))).count();
+        assert!(expect > 0 && list.len() == expect && list.iter().all(|c| ["prof", "dr"].contains(&group(c))));
+        assert_eq!(seniors["matching"].as_u64(), Some(expect as u64));
 
         let (canceled, received, open) = (x("paper.canceled_review.id"), x("paper.received_review.id"), x("paper.open_review"));
         let plan = app

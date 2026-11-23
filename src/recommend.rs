@@ -149,6 +149,7 @@ mod tests {
         Candidate {
             pin: pin.into(),
             name: format!("N{pin}"),
+            title: String::new(),
             affiliation: aff.into(),
             email: String::new(),
             keywords: kw.into(),

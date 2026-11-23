@@ -1123,7 +1123,11 @@ async function autoForm(pid) {
           Score: shared keywords (rare ones count more) and shared words with the title${info.abstract_text ? " and abstract" : ""}. Conflicts of interest are listed last.</div>
         <div class="row" style="margin:0 0 6px; flex-wrap:nowrap">
           <input type="search" id="aSearch" placeholder="Filter by name, affiliation, keyword, PIN…" style="flex:1; width:auto">
-          <label class="inline small" title="PINs are given in order of registration: a high PIN is usually a younger researcher">PIN from <input type="text" class="num" id="aMinPin" inputmode="numeric" placeholder="any"></label></div>
+          <label class="inline small" title="PINs are given in order of registration: a high PIN is usually a younger researcher">PIN from <input type="text" class="num" id="aMinPin" inputmode="numeric" placeholder="any"></label>
+          <label class="inline small" title="The title the person gave on PaperPlaza">Title <select id="aTitle" style="width:auto">
+            <option value="">any</option><option value="prof">Prof.</option><option value="dr">Dr.</option><option value="prof,dr">Prof. or Dr.</option>
+            <option value="mr">Mr.</option><option value="ms,mrs">Ms. or Mrs.</option><option value="mr,ms,mrs">Mr., Ms. or Mrs.</option>
+            <option value="other">other</option><option value="none">not given</option></select></label></div>
         <div class="list" id="aCands"></div>
         <details style="margin-top:8px" id="aDb"><summary class="small">Search the whole PIN database (people not on your Reviewers list)</summary>
           <div class="row" style="margin-top:6px">
@@ -1157,10 +1161,10 @@ async function autoForm(pid) {
     $("aAddList").title = S.viewer ? "Viewer mode: your Reviewers list cannot be changed" : "Adds them on PaperPlaza, as “Add to list” does";
   }
   function drawCands() {
-    $("aCount").textContent = $("aSearch").value.trim() || $("aMinPin").value.trim() ? `(${matching} of ${total} match, best first)` : `(${total} people, best match first)`;
+    $("aCount").textContent = $("aSearch").value.trim() || $("aMinPin").value.trim() || $("aTitle").value ? `(${matching} of ${total} match, best first)` : `(${total} people, best match first)`;
     $("aCands").innerHTML = cands.map((c) => {
       const why = inQueue(c.pin) ? "in the order" : onPaper.has(c.pin) ? onPaper.get(c.pin) : !c.available ? "not available" : "";
-      return `<div class="li"><span class="badge" title="Recommendation score (0–100)">${c.score}</span><div class="grow">${esc(c.name)} <span class="muted small">(${esc(c.pin)}) · ${esc(c.affiliation)}</span>
+      return `<div class="li"><span class="badge" title="Recommendation score (0–100)">${c.score}</span><div class="grow">${esc(c.name)} <span class="muted small">(${c.title ? `${esc(c.title)}, ` : ""}${esc(c.pin)}) · ${esc(c.affiliation)}</span>
         ${c.in_list ? "" : `<span class="small" style="color:var(--warn)"> · not on your list</span>`}
         ${c.conflict ? `<div class="small err" style="margin:0">Possible conflict: ${esc(c.conflict)}</div>` : ""}
         ${c.reasons.map((r) => `<div class="small" style="color:var(--ok)">${esc(r)}</div>`).join("")}</div>
@@ -1174,13 +1178,14 @@ async function autoForm(pid) {
   }
   async function query() {
     try {
-      const j = await api("candidates", { paper_id: pid, q: $("aSearch").value.trim(), min_pin: $("aMinPin").value.trim() });
+      const j = await api("candidates", { paper_id: pid, q: $("aSearch").value.trim(), min_pin: $("aMinPin").value.trim(), titles: $("aTitle").value.split(",").filter(Boolean) });
       ({ candidates: cands, total, matching } = j);
       drawCands();
     } catch (e) { $("dErr").textContent = e.message; }
   }
   let timer;
   $("aSearch").oninput = $("aMinPin").oninput = () => { clearTimeout(timer); timer = setTimeout(query, 250); };
+  $("aTitle").onchange = query;
   $("aDbGo").onclick = async () => {
     $("dErr").textContent = "";
     try {

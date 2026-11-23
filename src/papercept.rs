@@ -1207,7 +1207,9 @@ pub fn parse_candidates(page: &Page) -> Vec<Candidate> {
 
 fn candidates_in(doc: &scraper::Html) -> Vec<Candidate> {
     let Some(t) = find_table(doc, &["Name", "Affiliation", "E-mail address", "Keywords"]) else { return Vec::new() };
-    let (aff, mail, kw) = (t.col("Affiliation"), t.col("E-mail address"), t.col("Keywords"));
+    // The name cell reads "Doe, Jane (Prof., 12345)", or "Doe, Jane (12345)" without a title.
+    static TITLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(([^(),]+),\s*\d+\)\s*$").unwrap());
+    let (name_c, aff, mail, kw) = (t.col("Name"), t.col("Affiliation"), t.col("E-mail address"), t.col("Keywords"));
     let mut out = Vec::new();
     for row in &t.rows {
         let Some(cb) = row.select(&sel("input[type=checkbox]")).find(|i| i.value().attr("name").is_some_and(|n| n.starts_with("Include")))
@@ -1223,9 +1225,11 @@ fn candidates_in(doc: &scraper::Html) -> Vec<Candidate> {
             .map(|c| c.select(&sel(".hl")).map(|e| element_text(&e)).collect())
             .unwrap_or_default();
         let gray = row.value().attr("style").is_some_and(|s| s.replace(' ', "").contains("#888888"));
+        let title = TITLE.captures(&text(name_c)).map(|c| c[1].trim().to_string()).unwrap_or_default();
         out.push(Candidate {
             pin,
             name,
+            title,
             affiliation: text(aff),
             email: text(mail),
             keywords: text(kw),
@@ -1266,8 +1270,8 @@ pub fn parse_pin_results(page: &Page) -> Vec<Candidate> {
     let doc = page.doc();
     // "E-mail address" tells the results header apart from the "Search in" menu (which says "Email address").
     let Some(t) = find_table(&doc, &["PIN", "Surname", "Given name", "Affiliation", "E-mail address"]) else { return Vec::new() };
-    let (pin_c, sur, given, aff, mail, kw) =
-        (t.col("PIN"), t.col("Surname"), t.col("Given name"), t.col("Affiliation"), t.col("E-mail address"), t.col("Keywords"));
+    let (pin_c, sur, given, title, aff, mail, kw) =
+        (t.col("PIN"), t.col("Surname"), t.col("Given name"), t.col("Title"), t.col("Affiliation"), t.col("E-mail address"), t.col("Keywords"));
     let mut out = Vec::new();
     for row in &t.rows {
         let cs = cells(row);
@@ -1281,6 +1285,7 @@ pub fn parse_pin_results(page: &Page) -> Vec<Candidate> {
         let (surname, given_name) = (text(sur), text(given));
         out.push(Candidate {
             name: if given_name.is_empty() { surname } else { format!("{surname}, {given_name}") },
+            title: text(title),
             affiliation: text(aff),
             email: text(mail),
             keywords: text(kw),
