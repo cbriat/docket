@@ -168,7 +168,9 @@ Canceled and received reviews are skipped.
   author, or the same affiliation as an author) are flagged and listed last.
   Filter by name, affiliation, keyword or PIN. *PIN from* keeps only people
   with that PIN or a higher one: PINs are given in order of registration, so
-  a high PIN usually means a younger researcher.
+  a high PIN usually means a younger researcher. *Title* keeps only people
+  who gave that title on PaperPlaza (Prof., Dr., Mr., Ms. or Mrs.; each
+  person's title is shown next to the name).
 - **The whole PIN database**: search by keywords (with AND, OR, NOT), surname,
   e-mail, affiliation or PIN. People found who are not on your Reviewers list
   are ranked with the others and can be added to it in one click (Docket runs
