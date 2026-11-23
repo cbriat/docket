@@ -49,10 +49,16 @@ scripts/build-app.sh                          # builds target/Docket.app
 ditto target/Docket.app /Applications/Docket.app
 ```
 
-The app is signed ad hoc (no developer certificate), which is enough to run
-it on the Mac it was built on. On another Mac, open it the first time with
-right-click → *Open*. After each rebuild, macOS asks once whether Docket may
-use the passwords saved in the Keychain; answer *Always Allow*.
+Or download `Docket-<version>-macOS-arm64.zip` from the
+[Releases](https://github.com/cbriat/docket/releases) page (Apple silicon),
+unzip it and move Docket.app to Applications.
+
+The app is signed ad hoc (no Apple developer certificate), which is enough to
+run it on the Mac it was built on. On another Mac, macOS blocks it the first
+time: open it once, then go to System Settings → Privacy & Security and click
+*Open Anyway* (on macOS 14 and earlier, right-click → *Open* also works).
+After each rebuild or update, macOS asks once whether Docket may use the
+passwords saved in the Keychain; answer *Always Allow*.
 
 ## Getting started
 
@@ -367,3 +373,7 @@ Never commit saved pages, `expected.json` or `--trace` output.
 (render each size of an `.iconset` folder from the SVG, then `iconutil -c
 icns`). The menu-bar glyph `assets/icon/menubar.rgba` is drawn by `swift
 assets/icon/menubar.swift assets/icon/menubar.rgba /tmp/menubar.png`.
+
+## License
+
+[MIT](LICENSE) © 2026 Corentin Briat
