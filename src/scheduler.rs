@@ -98,9 +98,15 @@ impl Schedule {
 
     fn set_problem(&mut self, p: Option<String>) {
         if p.is_some() && p != self.problem {
-            notify(&self.paper_number, p.as_deref().unwrap_or(""));
+            let text = p.as_deref().unwrap_or("");
+            notify(Notice::Problems, &self.paper_number, text);
+            self.activity("problem", "", text, false);
         }
         self.problem = p;
+    }
+
+    fn activity(&self, kind: &str, who: &str, text: &str, ok: bool) {
+        crate::activity::add(&self.site, &self.journal, &self.paper_number, kind, who, text, ok);
     }
 }
 
@@ -362,7 +368,8 @@ fn run_one(session: &mut Session, s: &mut Schedule) -> Result<String> {
         s.state = State::Done;
         s.set_problem(None);
         s.note(format!("Finished: {} of {} needed reviewers accepted", c.accepted, s.needed));
-        notify(&s.paper_number, &format!("{} reviewers accepted; automatic invitations finished", c.accepted));
+        notify(Notice::Invitations, &s.paper_number, &format!("{} reviewers accepted; automatic invitations finished", c.accepted));
+        s.activity("invitation", "", &format!("finished: {} of {} needed reviewers accepted", c.accepted, s.needed), true);
         return Ok(format!("finished ({tally})"));
     }
     let mut problems = Vec::new();
@@ -376,11 +383,13 @@ fn run_one(session: &mut Session, s: &mut Schedule) -> Result<String> {
         match session.with_relogin(|x| x.cancel_review(r)) {
             Ok(_) => {
                 s.note(format!("Canceled the invitation of {}: no answer after {days} days", r.reviewer));
+                s.activity("cancellation", &r.reviewer, &format!("canceled the unanswered invitation (no answer after {days} days)"), true);
             }
             Err(e) => {
                 failed_cancels += 1;
                 problems.push(format!("could not cancel {}: {e:#}", r.reviewer));
                 s.note(format!("Could not cancel the invitation of {}: {e:#}", r.reviewer));
+                s.activity("cancellation", &r.reviewer, &format!("could not cancel the invitation: {e:#}"), false);
             }
         }
     }
@@ -406,11 +415,15 @@ fn run_one(session: &mut Session, s: &mut Schedule) -> Result<String> {
                             b.skipped = Some(r.message.clone());
                         }
                     }
+                    for r in &results {
+                        let name = s.queue.iter().find(|b| b.pin == r.pin).map(|b| b.name.clone()).unwrap_or_default();
+                        s.activity("invitation", &name, if r.ok { "invited" } else { &r.message }, r.ok);
+                    }
                     sent = done.len();
                     if !done.is_empty() {
                         let names = done.join(", ");
                         s.note(format!("Invited {names}"));
-                        notify(&s.paper_number, &format!("Invited {names}"));
+                        notify(Notice::Invitations, &s.paper_number, &format!("Invited {names}"));
                     }
                     for r in results.iter().filter(|r| !r.ok) {
                         problems.push(r.message.clone());
@@ -420,6 +433,7 @@ fn run_one(session: &mut Session, s: &mut Schedule) -> Result<String> {
                 Err(e) => {
                     problems.push(format!("could not invite {names}: {e:#}"));
                     s.note(format!("Could not invite {names}: {e:#}"));
+                    s.activity("invitation", &names, &format!("could not invite: {e:#}"), false);
                 }
             }
         }
@@ -445,9 +459,26 @@ fn now() -> String {
     Local::now().format("%Y-%m-%d %H:%M").to_string()
 }
 
+/// What a notification is about (each kind can be turned off in the settings).
+#[derive(Clone, Copy)]
+pub enum Notice {
+    Invitations,
+    Notes,
+    Problems,
+}
+
 /// A macOS notification, so changes are seen without the window open.
-fn notify(subtitle: &str, text: &str) {
+pub(crate) fn notify(kind: Notice, subtitle: &str, text: &str) {
     if cfg!(test) || !cfg!(target_os = "macos") {
+        return;
+    }
+    let n = creds::load_config().notify;
+    let on = match kind {
+        Notice::Invitations => n.invitations,
+        Notice::Notes => n.notes,
+        Notice::Problems => n.problems,
+    };
+    if !on {
         return;
     }
     let q = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");

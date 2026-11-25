@@ -90,6 +90,13 @@ dialog::backdrop { background: rgba(10,14,22,.45); }
 .item.bad { border-color: var(--danger); } .item.good { border-color: var(--ok); }
 .item .st { font-weight: 600; } .item.good .st { color: var(--ok); } .item.bad .st { color: var(--danger); }
 .note { background: var(--chip); border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 6px; flex-wrap: wrap; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 7px 12px; }
+.tabs button.on { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pane h3 { font-size: 14px; margin: 18px 0 2px; }
+.pane .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; }
+.pane .grid2 label { margin: 0; }
+input.num { width: 4.5em; }
 #busy { width: min(460px, 90vw); padding: 18px 22px; }
 #busy[open] { display: flex; gap: 14px; align-items: flex-start; }
 #busy::backdrop { background: rgba(10,14,22,.35); }
@@ -125,6 +132,7 @@ body.sub #aQueue, body.sub #aCands { max-height: calc(100vh - 430px); min-height
   <select id="hdrJournal" class="hidden" title="Journal"></select>
   <select id="hdrRole" class="hidden" title="Role"></select>
   <button id="btnReload" class="hidden">Reload from PaperPlaza</button>
+  <button id="btnSettings" title="Settings">Settings</button>
   <button id="btnLogout" class="hidden">Log out</button>
 </header>
 
@@ -165,6 +173,7 @@ body.sub #aQueue, body.sub #aCands { max-height: calc(100vh - 430px); min-height
       <span class="spacer"></span>
       <span class="muted" id="counts"></span>
       <button id="btnSched" class="hidden">Automatic invitations</button>
+      <button id="btnPending" class="hidden">Site notes to approve</button>
       <button id="btnCsv">Export CSV</button>
     </div>
     <div id="warnings" class="note err small hidden"></div>
@@ -195,6 +204,9 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let S = {}; let papers = []; let reviews = []; const selected = new Set();
 let mode = ""; let assignments = []; let schedules = [];
+// Automation state for the menus: paused, site notes on, notes waiting for approval.
+let autoStatus = { paused: false, pending: 0, notes_on: false };
+const prefs = () => (S && S.prefs) || {};
 // Papers shown folded (reviews hidden), remembered with the settings per journal.
 let folded = new Set();
 function saveFolded() { api("fold", { ids: [...folded] }).catch(() => {}); }
@@ -206,7 +218,8 @@ function setMode(m) {
   if (m === mode) return;
   mode = m;
   $("fState").innerHTML = FILTERS[m].map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
-  $("fState").value = m === "editor" ? "open" : "all";
+  const want = m === "editor" && prefs().table && prefs().table.filter;
+  $("fState").value = want && FILTERS.editor.some(([v]) => v === want) ? want : (m === "editor" ? "open" : "all");
   $("includeAllLabel").textContent = m === "editor" ? "Papers with any status" : "Past reviews too";
   $("q").placeholder = m === "editor" ? "Search reviewer, paper, title…" : "Search paper, title, authors, editor…";
 }
@@ -266,6 +279,12 @@ window.docketEvent = (event, data) => {
   if (event === "reload" && !VIEW && S.role) load();
   if (event === "busy-close") { $("busyNoClose").textContent = "Wait until this is finished before closing the window."; $("busyNoClose").classList.remove("hidden"); }
   if (event === "menu") menuCommand(data.action, data.arg);
+  if (event === "settings") api("state").then((x) => {
+    const out = S.logged_in && !x.logged_in;
+    S = x;
+    if (out && !VIEW) { papers = []; reviews = []; assignments = []; selected.clear(); renderHeader(); updateBar(); showLogin(); }
+    loadAutoStatus();
+  });
 };
 // alert() and confirm() do nothing in the app's windows, so both use this.
 function ask(message, yes = "OK", no = "Cancel") {
@@ -331,6 +350,15 @@ $("hdrRole").onchange = () => { if ($("hdrRole").value) openRole($("hdrRole").va
 async function boot() {
   S = await api("state");
   renderHeader();
+  setInterval(() => { if (S.logged_in) loadAutoStatus(); }, 60000);
+  if (!S.logged_in && S.auto_login && S.has_saved_password) {
+    // Settings → Accounts: log in by itself with the password saved in the Keychain.
+    try {
+      S = await api("login", { site: S.site, login_id: S.login_id, password: "", viewer: !!S.saved_viewer }, "Logging in…");
+      renderHeader();
+      return await afterLogin();
+    } catch (e) { showLogin(); $("loginErr").textContent = "Automatic login failed: " + e.message; return; }
+  }
   if (!S.logged_in) return showLogin();
   await afterLogin();
 }
@@ -367,6 +395,7 @@ $("btnReload").onclick = () => load();
 $("includeAll").onchange = () => load();
 
 async function afterLogin() {
+  if (prefs().table) $("includeAll").checked = !!prefs().table.include_all;
   if (!S.journal && S.saved_journal && (S.journals || []).some((j) => j.code === S.saved_journal)) {
     try { S = await api("journal", { code: S.saved_journal }, "Opening " + S.saved_journal.toUpperCase() + "…"); } catch (e) { /* fall through to the picker */ }
   }
@@ -595,6 +624,11 @@ function wireChips(fields) {
 
 async function contactForm(start = {}) {
   try { await loadTemplates(); } catch (e) { say(e.message); return; }
+  if (!draft.defaults && prefs().message_defaults) {
+    // Settings → Messages, for a new message.
+    const m = prefs().message_defaults;
+    draft = { ...draft, cc: m.cc || "", do_not_copy_me: !m.copy_me, do_not_archive: !!m.do_not_archive, my_eyes_only: !!m.my_eyes_only, defaults: true };
+  }
   if (start.template) {
     const t = tpl.list.find((x) => x.name === start.template);
     if (t) draft = { ...draft, subject: t.subject, message: t.body, template: t.name };
@@ -1033,9 +1067,17 @@ async function loadSchedules() {
   const active = schedules.filter((s) => s.state === "active").length;
   $("btnSched").textContent = `Automatic invitations${schedules.length ? ` (${active} active)` : ""}`;
   $("btnSched").classList.toggle("hidden", mode !== "editor" && !schedules.length);
+  await loadAutoStatus();
+}
+async function loadAutoStatus() {
+  try { autoStatus = await api("automation_status"); } catch (e) { /* keep the last one */ }
+  $("btnPending").textContent = `Site notes to approve (${autoStatus.pending})`;
+  $("btnPending").classList.toggle("hidden", !autoStatus.pending || !!VIEW);
   syncMenus();
 }
 $("btnSched").onclick = () => schedList();
+$("btnPending").onclick = () => pendingForm();
+$("btnSettings").onclick = () => menuCommand("settings", "");
 
 function schedCard(s, buttons = true) {
   const days = s.no_answer_days ? `, replace unanswered after ${s.no_answer_days} days` : "";
@@ -1088,6 +1130,8 @@ async function autoForm(pid) {
   const p = papers.find((x) => x.id === pid);
   if (!p) return say(`Paper ${pid} is not loaded; reload the list in the main window.`);
   const ex = schedules.find((s) => s.journal === S.journal.code && s.paper_id === pid && s.state !== "done");
+  // Starting values of a new schedule (Settings → Invitations).
+  const D = { needed: 2, at_once: 3, no_answer_days: 7, attach: false, copy: false, ...(prefs().invite_defaults || {}) };
   let cands, info, total = 0, matching = 0;
   try {
     const j = await api("candidates", { paper_id: pid }, "Reading the paper and your Reviewers list from PaperPlaza (large page, this can take a while)…");
@@ -1104,15 +1148,15 @@ async function autoForm(pid) {
       ${S.viewer ? "<br><strong>Viewer mode:</strong> the schedule is saved and checked, but nothing is sent and your Reviewers list is not changed." : ""}
       <br><em>Invite now</em> sends the invitations right away to everyone in the order who has not been invited yet.</div>
     <div class="row">
-      <label class="inline">Reviewers needed <input type="text" class="num" id="aNeeded" value="${ex ? ex.needed : 2}"></label>
-      <label class="inline">Invited at once <input type="text" class="num" id="aAtOnce" value="${ex ? ex.at_once : 3}"></label>
-      <label class="inline"><input type="checkbox" id="aNoAns" ${!ex || ex.no_answer_days ? "checked" : ""}> Replace unanswered invitations after
-        <input type="text" class="num" id="aDays" value="${ex && ex.no_answer_days ? ex.no_answer_days : 7}"> days</label>
+      <label class="inline">Reviewers needed <input type="text" class="num" id="aNeeded" value="${ex ? ex.needed : D.needed}"></label>
+      <label class="inline">Invited at once <input type="text" class="num" id="aAtOnce" value="${ex ? ex.at_once : D.at_once}"></label>
+      <label class="inline"><input type="checkbox" id="aNoAns" ${(ex ? ex.no_answer_days : D.no_answer_days) ? "checked" : ""}> Replace unanswered invitations after
+        <input type="text" class="num" id="aDays" value="${(ex ? ex.no_answer_days : D.no_answer_days) || 7}"> days</label>
     </div>
     <div class="row">
       <label class="inline">Review deadline <input type="date" id="aDue" style="width:auto"> <span class="muted small">(Invite now only; empty: PaperPlaza's default)</span></label>
-      <label class="inline"><input type="checkbox" id="aAttach" ${ex && ex.invite && ex.invite.attach ? "checked" : ""}> Attach the manuscript</label>
-      <label class="inline"><input type="checkbox" id="aCopy" ${ex && ex.invite && ex.invite.copy ? "checked" : ""}> Send me a copy</label>
+      <label class="inline"><input type="checkbox" id="aAttach" ${(ex ? ex.invite && ex.invite.attach : D.attach) ? "checked" : ""}> Attach the manuscript</label>
+      <label class="inline"><input type="checkbox" id="aCopy" ${(ex ? ex.invite && ex.invite.copy : D.copy) ? "checked" : ""}> Send me a copy</label>
     </div>
     <div id="aConfirm"></div>
     <div class="cols" style="margin-top:12px">
@@ -1275,6 +1319,9 @@ function syncMenus() {
     schedules: schedules.map((s) => ({ id: String(s.id), label: `${s.paper_number} — ${s.state}, ${s.counts.accepted} of ${s.needed} accepted`, on: false })),
     active: schedules.filter((s) => s.state === "active").length,
     paused: schedules.filter((s) => s.state === "paused").length,
+    notes_on: !!autoStatus.notes_on,
+    pending: autoStatus.pending || 0,
+    paused_all: !!autoStatus.paused,
   };
   const text = JSON.stringify(data);
   if (text !== lastMenus) { lastMenus = text; native({ cmd: "menus", data }); }
@@ -1315,14 +1362,14 @@ async function setAllSchedules(state) {
 async function exportSettings() {
   try {
     const j = await api("settings_export", {}, "Exporting the settings…");
-    say(`Saved as ${j.path} (shown in the Finder).\n\nIt contains your logins and PINs for each site, your journal and role choices, your message templates and signature, and your automatic invitations. Passwords are not included: they stay in this Mac's Keychain, and on the other computer you type each one once.\n\nKeep this file private. On the other computer: File → Import Settings… in Docket.`);
+    say(`Saved as ${j.path} (shown in the Finder).\n\nIt contains your logins and PINs for each site, your journal and role choices, your message templates and signature, your automatic invitations and thank-you notes (with who was already thanked). Passwords are not included: they stay in this Mac's Keychain, and on the other computer you type each one once.\n\nKeep this file private. On the other computer: File → Import Settings… in Docket.`);
   } catch (e) { say(e.message); }
 }
 
 function importSettings() {
   openDialog("Import settings", `
     <div class="note small">Replaces this computer's Docket settings with the ones exported from another computer (File → Export Settings…):
-      logins and PINs, journal and role choices, message templates and signature, automatic invitations.
+      logins and PINs, journal and role choices, message templates and signature, automatic invitations and thank-you notes.
       The current settings are first saved in a backup folder, and you are logged out. Passwords are not in the export: type them once at the next login.</div>
     <label for="importFile">Settings file</label><input type="file" id="importFile" accept=".json,application/json">
     <div class="err" id="dErr"></div>`,
@@ -1334,6 +1381,7 @@ function importSettings() {
     try {
       const text = await $("importFile").files[0].text();
       const j = await api("settings_import", { text }, "Importing the settings…");
+      tell("settings");
       dlg.close();
       S = j; papers = []; reviews = []; assignments = []; selected.clear();
       await loadSchedules();
@@ -1341,6 +1389,265 @@ function importSettings() {
       const active = schedules.filter((s) => s.state === "active").length;
       say(`Settings imported. The previous ones are in\n${j.backup}\n\nLog in again (the password is asked once).` +
         (active ? `\n\n${active} automatic invitation schedule${active === 1 ? " is" : "s are"} active. If Docket also stays open on the other computer, both will send them: pause them on one of the two.` : ""));
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+}
+
+// ------------------------------------------- settings
+function openSettings(tab) {
+  popOut("settings", { tab: tab || "" }, "Settings", [920, 820], () => settingsForm(tab));
+}
+
+async function togglePauseAll() {
+  try {
+    const cur = await api("settings");
+    await api("settings_save", { automation: { ...cur.automation, paused: !cur.automation.paused } });
+    tell("settings");
+    await loadAutoStatus();
+  } catch (e) { if (!NATIVE || !VIEW) say(e.message); }
+}
+
+const SETTINGS_TABS = [["general", "General"], ["automation", "Automation"], ["invitations", "Invitations"], ["messages", "Messages"], ["accounts", "Accounts & data"], ["activity", "Activity"]];
+
+async function settingsForm(tab, msg) {
+  let c, t;
+  try { [c] = await Promise.all([api("settings")]); await loadTemplates(); t = tpl; } catch (e) { return say(e.message); }
+  const n = c.notes;
+  const ck = (on) => (on ? "checked" : "");
+  const opt = (v, cur, label) => `<option value="${esc(String(v))}" ${String(v) === String(cur) ? "selected" : ""}>${esc(label)}</option>`;
+  const hours = (cur) => Array.from({ length: 25 }, (_, h) => opt(h, cur, `${h}:00`)).join("");
+  const editor = mode === "editor" && !!S.journal;
+  const same = (p) => !!S.journal && p.site === S.site && p.journal.toLowerCase() === S.journal.code.toLowerCase();
+  const others = n.journals.filter((p) => !same(p));
+  const a = c.automation, h = a.hours || [8, 20];
+  const repeat = (id, r, what, days, note) => `
+    <div class="row"><label class="inline"><input type="checkbox" id="${id}On" ${ck(r.on)}> ${what}</label></div>
+    <div class="row" style="margin-left:24px">
+      <label class="inline">${days} <input type="text" class="num" id="${id}Days" value="${r.after_days}"> days</label>
+      <label class="inline">at most <input type="text" class="num" id="${id}Max" value="${r.max}"> per review</label></div>
+    <div class="row" style="margin-left:24px">
+      <label class="inline"><input type="checkbox" id="${id}Attach" ${ck(r.attach)}> Attach the submission</label>
+      <label class="inline"><input type="checkbox" id="${id}Copy" ${ck(r.copy_me)}> Send me a copy</label>
+      <label class="inline"><input type="checkbox" id="${id}Ask" ${ck(r.ask)}> Ask me first</label></div>
+    <div class="muted small" style="margin-left:24px">${note}</div>`;
+  const panes = {
+    general: `
+      ${NATIVE ? `<h3>Dock icon</h3><select id="sDock" style="width:auto">${opt("", c.dock, "While a window is open")}${opt("always", c.dock, "Always")}${opt("never", c.dock, "Never (menu bar only)")}</select>
+        <div class="muted small">macOS shows Docket's menus only while it has a Dock icon; with “Never”, use the menu-bar icon.</div>` : ""}
+      <h3>Start</h3>
+      <label class="inline"><input type="checkbox" id="sLogin" ${ck(c.open_at_login)} ${c.can_open_at_login || c.open_at_login ? "" : "disabled"}> Open Docket at login, in the menu bar</label>
+      <div class="muted small">${c.can_open_at_login ? "It logs in by itself with the password saved in the Keychain, so automatic invitations and site notes keep running." : "Only Docket.app can open at login (not the version started from a terminal)."}</div>
+      <h3>Notifications</h3>
+      <label class="inline"><input type="checkbox" id="sNInv" ${ck(c.notify.invitations)}> Automatic invitations</label>
+      <label class="inline"><input type="checkbox" id="sNNotes" ${ck(c.notify.notes)}> Site notes sent or waiting for approval</label>
+      <label class="inline"><input type="checkbox" id="sNProb" ${ck(c.notify.problems)}> Problems</label>
+      <h3>Table</h3>
+      <div class="row"><label class="inline">Show at first <select id="sFilter" style="width:auto">${FILTERS.editor.map(([v, l]) => opt(v, c.table.filter || "open", l)).join("")}</select></label>
+        <label class="inline"><input type="checkbox" id="sAll" ${ck(c.table.include_all)}> Papers with any status</label></div>`,
+    automation: `
+      <label class="inline"><input type="checkbox" id="sPaused" ${ck(a.paused)}> <strong>Pause all automation</strong> (automatic invitations and site notes)</label>
+      <div class="row" style="margin-top:6px"><label class="inline">Check every <select id="sEvery" style="width:auto">${[15, 30, 60].map((m) => opt(m, a.every_minutes, m + " minutes")).join("")}</select></label>
+        <span class="muted small">while Docket is open (also with its windows closed)</span></div>
+      <div class="row"><label class="inline"><input type="checkbox" id="sHours" ${ck(!!a.hours)}> Send only from</label>
+        <select id="sFrom" style="width:auto">${hours(h[0])}</select> to <select id="sTo" style="width:auto">${hours(h[1])}</select>
+        <label class="inline"><input type="checkbox" id="sWeek" ${ck(a.weekdays_only)}> Monday to Friday only</label></div>
+      <div class="muted small">Outside these hours nothing is checked or sent; it happens at the next check that is allowed.</div>
+      <h3>Site notes</h3>
+      <div class="note small">PaperPlaza's own notes, sent from its <em>Reminders and thanks</em> pages with the site's letters and recorded there,
+        as if you sent them yourself on the site. No personal message is sent. With <em>Ask me first</em>, the notes wait for you:
+        menu-bar icon → <em>Send Pending Site Notes…</em>.${S.viewer ? " <strong>Viewer mode:</strong> checks only report what would be sent." : ""}</div>
+      ${editor ? `<label class="inline"><input type="checkbox" id="sHere" ${ck(n.here)}> Send site notes for my papers in ${esc(S.journal.name)}</label>`
+        : `<div class="muted small">Open the Associate Editor role of a journal to turn site notes on for it.</div>`}
+      ${others.length ? `<div class="small" style="margin-top:4px">Also on for: ${others.map((p) => `${esc(p.name || p.journal)}${p.site !== S.site ? ` (${esc(p.site)})` : ""}
+        <button class="link small" data-rm-site="${esc(p.site)}" data-rm-journal="${esc(p.journal)}">remove</button>`).join(" · ")}</div>` : ""}
+      <h3>Thank-you notes</h3>
+      <div class="row"><label class="inline"><input type="checkbox" id="tAcc" ${ck(n.thanks.accept.on)}> For agreeing to review</label>${n.thanks.accept.on && n.thanks.accept.since ? `<span class="muted small">since ${esc(n.thanks.accept.since)}</span>` : ""}</div>
+      <div class="row"><label class="inline"><input type="checkbox" id="tRev" ${ck(n.thanks.review.on)}> For submitting a review</label>${n.thanks.review.on && n.thanks.review.since ? `<span class="muted small">since ${esc(n.thanks.review.since)}</span>` : ""}</div>
+      <div class="row" style="margin-left:24px"><label class="inline"><input type="checkbox" id="tCopy" ${ck(n.thanks.copy_me)}> Send me a copy</label>
+        <label class="inline"><input type="checkbox" id="tAsk" ${ck(n.thanks.ask)}> Ask me first</label></div>
+      <div class="muted small" style="margin-left:24px">Only acceptances and reviews dated from the day a note is turned on; the site lists only reviews it has not thanked.</div>
+      <h3>Confirmation requests</h3>
+      ${repeat("rc", n.confirm, "Ask reviewers who have not answered an invitation to accept or decline", "After the invitation, and between requests:", "The site's own record of earlier requests counts.")}
+      <h3>Review reminders</h3>
+      ${repeat("rr", n.remind, "Remind reviewers whose review is overdue", "After the due date, and between reminders:", "The site's reminder letter is written for late reviews, so none is sent before the due date. Earlier reminders recorded on the site count.")}
+      <div class="row" style="margin-top:12px"><button id="sCheck">Save and check now</button>
+        <button id="sPend" ${n.pending.length ? "" : "disabled"}>Notes waiting for approval (${n.pending.length})…</button></div>
+      <div class="note small hidden" id="sReport"></div>`,
+    invitations: `
+      <div class="muted small">Starting values of new automatic invitations (each paper's own settings are kept).</div>
+      <div class="row"><label class="inline">Reviewers needed <input type="text" class="num" id="iNeeded" value="${c.invite_defaults.needed}"></label>
+        <label class="inline">Invited at once <input type="text" class="num" id="iAtOnce" value="${c.invite_defaults.at_once}"></label></div>
+      <div class="row"><label class="inline"><input type="checkbox" id="iNoAns" ${ck(c.invite_defaults.no_answer_days > 0)}> Replace unanswered invitations after
+        <input type="text" class="num" id="iDays" value="${c.invite_defaults.no_answer_days || 7}"> days</label></div>
+      <div class="row"><label class="inline"><input type="checkbox" id="iAttach" ${ck(c.invite_defaults.attach)}> Attach the manuscript</label>
+        <label class="inline"><input type="checkbox" id="iCopy" ${ck(c.invite_defaults.copy)}> Send me a copy</label></div>`,
+    messages: `
+      <label for="mSig">Signature <span class="muted small">(what <code>%signature</code> stands for)</span></label>
+      <textarea id="mSig" style="min-height:80px">${esc(t.signature || "")}</textarea>
+      <button class="link small" id="mTpl" style="margin-top:6px">Edit the message templates (${t.list.length})…</button>
+      <h3>New messages to reviewers start with</h3>
+      <label for="mCc">Cc</label><input id="mCc" type="text" value="${esc(c.message_defaults.cc || "")}" placeholder="none">
+      <div class="row"><label class="inline"><input type="checkbox" id="mCopy" ${ck(c.message_defaults.copy_me)}> Send me a copy</label>
+        <label class="inline"><input type="checkbox" id="mNoArch" ${ck(c.message_defaults.do_not_archive)}> Do not archive</label>
+        <label class="inline"><input type="checkbox" id="mEyes" ${ck(c.message_defaults.my_eyes_only)}> For my eyes only</label></div>`,
+    accounts: `
+      <h3>Logins</h3>
+      ${(S.sites || []).map((x) => `<div class="row"><span style="min-width:260px">${esc(x.name)} <span class="muted small">${esc(x.host)}</span></span>
+        <span>${x.login_id ? esc(x.login_id) : `<span class="muted">not used yet</span>`}</span>
+        ${x.has_saved_password ? `<button class="link small" data-forget="${esc(x.host)}">Forget the saved password</button>` : x.login_id ? `<span class="muted small">no saved password</span>` : ""}</div>`).join("")}
+      <label class="inline" style="margin-top:10px"><input type="checkbox" id="aAuto" ${ck(c.auto_login)}> Log in automatically when Docket starts (with the saved password)</label>
+      <label class="inline"><input type="checkbox" id="aViewer" ${ck(c.viewer)}> Viewer mode at login (look only: nothing is sent)</label>
+      <h3>Settings</h3>
+      <div class="row"><button id="aExport">Export settings…</button><button id="aImport">Import settings…</button><button id="aFolder">Open the settings folder</button></div>
+      <div class="muted small">${esc(c.folder)}</div>`,
+    activity: `<div class="row"><select id="vKind" style="width:auto"><option value="">Everything</option><option value="invitation">Invitations</option><option value="cancellation">Cancellations</option>
+        <option value="thanks">Thank-you notes</option><option value="confirmation">Confirmation requests</option><option value="reminder">Reminders</option><option value="problem">Problems</option></select>
+        <input type="search" id="vQ" placeholder="Search paper, reviewer, text…" style="width:260px"><span class="spacer"></span><span class="muted small" id="vCount"></span><button id="vCsv">Export CSV</button></div>
+      <div id="vList" style="max-height:520px; overflow:auto; margin-top:8px"></div>`,
+  };
+  dlg.classList.add("wide");
+  openDialog("Settings", `<div class="tabs">${SETTINGS_TABS.map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join("")}</div>
+    ${SETTINGS_TABS.map(([k]) => `<div class="pane hidden" id="pane-${k}">${panes[k]}</div>`).join("")}
+    <div class="small" id="sMsg">${esc(msg || "")}</div><div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button class="primary" id="sSave">Save</button>`);
+  dlg.classList.add("wide");
+  let cur = SETTINGS_TABS.some(([k]) => k === tab) ? tab : "general";
+  const show = (k) => { cur = k; for (const [x] of SETTINGS_TABS) { $("pane-" + x).classList.toggle("hidden", x !== k); } for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.tab === k); $("sSave").classList.toggle("hidden", k === "activity"); if (k === "activity") drawActivity(); };
+  for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => show(b.dataset.tab);
+
+  const num = (id) => Number($(id).value.trim());
+  const rep = (id) => ({ on: $(id + "On").checked, after_days: num(id + "Days"), max: num(id + "Max"), attach: $(id + "Attach").checked, copy_me: $(id + "Copy").checked, ask: $(id + "Ask").checked });
+  const read = () => ({
+    cfg: {
+      ...(NATIVE ? { dock: $("sDock").value } : {}),
+      notify: { invitations: $("sNInv").checked, notes: $("sNNotes").checked, problems: $("sNProb").checked },
+      table: { filter: $("sFilter").value, include_all: $("sAll").checked },
+      automation: { paused: $("sPaused").checked, every_minutes: num("sEvery"), hours: $("sHours").checked ? [num("sFrom"), num("sTo")] : null, weekdays_only: $("sWeek").checked },
+      invite_defaults: { needed: num("iNeeded"), at_once: num("iAtOnce"), no_answer_days: $("iNoAns").checked ? num("iDays") : 0, attach: $("iAttach").checked, copy: $("iCopy").checked },
+      message_defaults: { cc: $("mCc").value.trim(), copy_me: $("mCopy").checked, do_not_archive: $("mNoArch").checked, my_eyes_only: $("mEyes").checked },
+      auto_login: $("aAuto").checked, viewer: $("aViewer").checked,
+    },
+    login: $("sLogin").checked,
+    notes: { thanks: { accept: { on: $("tAcc").checked }, review: { on: $("tRev").checked }, copy_me: $("tCopy").checked, ask: $("tAsk").checked },
+      confirm: rep("rc"), remind: rep("rr"), here: editor ? $("sHere").checked : undefined },
+    signature: $("mSig").value,
+  });
+  const start = JSON.stringify(read());
+  const save = async () => {
+    const x = read();
+    for (const [k, v] of [["Reviewers needed", x.cfg.invite_defaults.needed], ["Invited at once", x.cfg.invite_defaults.at_once],
+      ["Confirmation request days", x.notes.confirm.after_days], ["Confirmation requests per review", x.notes.confirm.max],
+      ["Reminder days", x.notes.remind.after_days], ["Reminders per review", x.notes.remind.max]]) {
+      if (!Number.isInteger(v) || v < 1) throw new Error(`${k}: give a whole number from 1.`);
+    }
+    if (x.cfg.automation.hours && x.cfg.automation.hours[0] === x.cfg.automation.hours[1]) throw new Error("The sending hours start and end at the same time.");
+    const was = JSON.parse(start);
+    await api("settings_save", { ...x.cfg, ...(x.login !== was.login ? { open_at_login: x.login } : {}) });
+    await api("notes_save", x.notes);
+    if (x.signature !== was.signature) await api("templates_save", { signature: x.signature, list: tpl.list });
+    if (NATIVE && x.cfg.dock !== was.cfg.dock) native({ cmd: "dock", data: x.cfg.dock });
+    S = await api("state");
+    tell("settings");
+    await loadAutoStatus();
+  };
+  const changed = () => JSON.stringify(read()) !== start;
+  const leave = async (go) => { if (changed() && !(await ask("Leave the settings without saving your changes?", "Leave"))) return; go(); };
+  $("dClose").onclick = () => leave(() => dlg.close());
+  $("sSave").onclick = async () => {
+    $("dErr").textContent = "";
+    try { await save(); settingsForm(cur, "Saved."); } catch (e) { $("dErr").textContent = e.message; }
+  };
+  $("sCheck").onclick = async () => {
+    $("dErr").textContent = "";
+    try {
+      await save();
+      if (!S.logged_in) throw new Error("Log in first.");
+      const j = await api("notes_run", {}, "Checking PaperPlaza's Reminders and thanks pages…");
+      await loadAutoStatus();
+      await settingsForm("automation", "Saved and checked.");
+      $("sReport").innerHTML = (j.report.length ? j.report : ["Nothing to send right now."]).map(esc).join("<br>") +
+        (j.pending.length ? `<br>${j.pending.length} note${j.pending.length === 1 ? "" : "s"} waiting for your approval.` : "");
+      $("sReport").classList.remove("hidden");
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+  $("sPend").onclick = () => leave(() => pendingForm(() => settingsForm("automation")));
+  for (const b of document.querySelectorAll("[data-rm-site]")) b.onclick = async () => {
+    if (!(await ask(`Stop the site notes for ${b.dataset.rmJournal.toUpperCase()} (${b.dataset.rmSite})?`, "Stop"))) return;
+    try { await api("notes_remove_place", { site: b.dataset.rmSite, journal: b.dataset.rmJournal }); tell("settings"); await loadAutoStatus(); settingsForm("automation", "Removed."); }
+    catch (e) { $("dErr").textContent = e.message; }
+  };
+  for (const b of document.querySelectorAll("[data-forget]")) b.onclick = async () => {
+    if (!(await ask(`Forget the password saved for ${b.dataset.forget}?`, "Forget"))) return;
+    try { S = await api("forget", { site: b.dataset.forget }); settingsForm("accounts", "The saved password was removed from the Keychain."); } catch (e) { $("dErr").textContent = e.message; }
+  };
+  $("mTpl").onclick = () => leave(() => templatesForm(() => settingsForm("messages")));
+  $("aExport").onclick = exportSettings;
+  // In the app, importing happens in the main window (it logs out).
+  $("aImport").onclick = () => leave(() => { if (VIEW) { native({ cmd: "command", data: "settings-import" }); native({ cmd: "close" }); } else importSettings(); });
+  $("aFolder").onclick = () => api("reveal_settings").catch((e) => { $("dErr").textContent = e.message; });
+  if ($("sLogin").checked && !c.auto_login) $("sMsg").textContent = "Open at login is on, but automatic login is off (Accounts & data): Docket will wait for you to log in.";
+
+  let entries = null;
+  async function drawActivity() {
+    if (!entries) { try { entries = (await api("activity")).entries; } catch (e) { $("dErr").textContent = e.message; entries = []; } }
+    const kind = $("vKind").value, q = $("vQ").value.trim().toLowerCase();
+    const rows = entries.filter((e) => (!kind || e.kind === kind) && (!q || [e.paper, e.who, e.text, e.journal].join(" ").toLowerCase().includes(q)));
+    $("vCount").textContent = `${rows.length} of ${entries.length}`;
+    $("vList").innerHTML = rows.length ? `<table class="small"><thead><tr><th>When</th><th>Journal</th><th>Paper</th><th>What</th><th>Reviewer</th><th>Result</th></tr></thead><tbody>${
+      rows.slice(0, 1000).map((e) => `<tr><td class="nowrap">${esc(e.at)}</td><td>${esc(e.journal)}</td><td class="nowrap">${esc(e.paper)}</td><td>${esc(e.kind)}</td><td>${esc(e.who)}</td>
+        <td ${e.ok ? "" : `style="color:var(--danger)"`}>${esc(e.text)}</td></tr>`).join("")}</tbody></table>` : `<div class="muted small">Nothing yet. Everything Docket sends by itself is listed here.</div>`;
+    $("vCsv").onclick = async () => {
+      const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const text = [["When", "Site", "Journal", "Paper", "What", "Reviewer", "Result", "OK"], ...rows.map((e) => [e.at, e.site, e.journal, e.paper, e.kind, e.who, e.text, e.ok ? "yes" : "no"])].map((r) => r.map(cell).join(",")).join("\n");
+      try { await api("save_download", { name: "Docket activity.csv", text }); } catch (e) { $("dErr").textContent = e.message; }
+    };
+  }
+  $("vKind").onchange = drawActivity;
+  $("vQ").oninput = drawActivity;
+  show(cur);
+}
+
+// Site notes waiting for approval (Settings → Automation → Ask me first).
+async function pendingForm(back) {
+  let n;
+  try { n = await api("notes"); } catch (e) { return say(e.message); }
+  const mine = n.pending.filter((p) => p.site === S.site);
+  if (!mine.length) {
+    await loadAutoStatus();
+    if (back) return back();
+    return say(n.pending.length ? "The notes waiting for approval are for another site: log in there." : "No site notes are waiting for your approval.");
+  }
+  const what = { accept: "Thanks for agreeing to review", review: "Thanks for the review", confirm: "Confirmation request", remind: "Review reminder" };
+  openDialog("Site notes waiting for your approval", `
+    <div class="note small">PaperPlaza's own notes, with the site's letters. Untick those you do not want to send now: they are asked again at the next check.
+      ${S.viewer ? "<br><strong>Viewer mode:</strong> nothing is sent." : ""}</div>
+    <label class="inline"><input type="checkbox" id="pAll" checked> All</label>
+    <div style="max-height:420px; overflow:auto"><table class="small"><thead><tr><th></th><th>Journal</th><th>Paper</th><th>Note</th><th>Reviewer</th><th>Why</th></tr></thead><tbody>
+    ${mine.map((p, i) => `<tr><td><input type="checkbox" data-p="${i}" checked></td><td>${esc(p.journal.toUpperCase())}</td><td class="nowrap">${esc(p.paper)}</td>
+      <td>${esc(what[p.kind] || p.kind)}</td><td>${esc(p.reviewer)}</td><td>${esc(p.why)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="note small hidden" id="pReport"></div><div class="err" id="dErr"></div>`,
+    `${back ? `<button id="dBack">Back</button>` : ""}<button id="dClose">Close</button><button id="pCheck">Check again</button><button class="primary" id="pSend">Send selected</button>`);
+  const boxes = () => [...document.querySelectorAll("[data-p]")];
+  $("pAll").onchange = () => { for (const b of boxes()) b.checked = $("pAll").checked; };
+  $("dClose").onclick = () => dlg.close();
+  if (back) $("dBack").onclick = back;
+  $("pCheck").onclick = async () => {
+    try { await api("notes_run", {}, "Checking PaperPlaza's Reminders and thanks pages…"); await loadAutoStatus(); pendingForm(back); }
+    catch (e) { $("dErr").textContent = e.message; }
+  };
+  $("pSend").onclick = async () => {
+    const keys = boxes().filter((b) => b.checked).map((b) => mine[Number(b.dataset.p)].key);
+    if (!keys.length) return ($("dErr").textContent = "Select at least one note.");
+    if (!(await ask(`Send ${keys.length} note${keys.length === 1 ? "" : "s"} through PaperPlaza now?`, "Send"))) return;
+    try {
+      const j = await api("notes_send", { keys }, "Sending the notes through PaperPlaza…");
+      await loadAutoStatus();
+      const rest = j.pending.filter((p) => p.site === S.site).length;
+      openDialog("Site notes", `<div class="note small">${(j.report.length ? j.report : ["Nothing was sent: these notes are no longer due."]).map(esc).join("<br>")}</div>
+        ${rest ? `<div class="small">${rest} note${rest === 1 ? "" : "s"} still waiting.</div>` : ""}`,
+        `${rest ? `<button id="pMore">Show the others</button>` : ""}<button class="primary" id="dClose">Close</button>`);
+      $("dClose").onclick = () => (back ? back() : dlg.close());
+      if (rest) $("pMore").onclick = () => pendingForm(back);
     } catch (e) { $("dErr").textContent = e.message; }
   };
 }
@@ -1357,8 +1664,8 @@ function menuCommand(action, arg) {
     $("busyNoClose").classList.remove("hidden");
     return;
   }
-  if (dlg.open && action !== "show") return say(`Close “${$("dlgHead").textContent}” first.`);
-  if (!S.logged_in && !["show", "settings-export", "settings-import", "templates"].includes(action)) return say("Log in first.");
+  if (dlg.open && !["show", "pause-all"].includes(action) && !(NATIVE && action === "settings")) return say(`Close “${$("dlgHead").textContent}” first.`);
+  if (!S.logged_in && !["show", "settings-export", "settings-import", "templates", "settings", "pause-all"].includes(action)) return say("Log in first.");
   const editorOnly = () => { if (!S.role || mode !== "editor") { say("Open the Associate Editor role of a journal first."); return true; } return false; };
   const run = {
     show: () => {},
@@ -1381,6 +1688,10 @@ function menuCommand(action, arg) {
     "remind-overdue": () => writeTo(overdueOnes(), "Reminder: review overdue", "overdue reviews"),
     "nudge-unanswered": () => writeTo(unansweredOnes(), "Invitation not answered", "unanswered invitations"),
     "sched-list": () => schedList(),
+    thanks: () => openSettings("automation"),
+    settings: () => openSettings(arg),
+    "notes-pending": () => pendingForm(),
+    "pause-all": togglePauseAll,
     "sched-run": runSchedulesNow,
     "sched-pause": () => setAllSchedules("paused"),
     "sched-resume": () => setAllSchedules("active"),
@@ -1415,6 +1726,7 @@ async function bootView() {
     inspect: () => inspect(PARAMS.get("review")),
     paper: () => paperDetails(PARAMS.get("paper")),
     staff: () => staffForm(PARAMS.get("paper")),
+    settings: () => settingsForm(PARAMS.get("tab") || ""),
   }[VIEW];
   if (open) await open();
   if (!dlg.open) {

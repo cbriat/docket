@@ -8,6 +8,8 @@ mod papercept;
 mod recommend;
 mod scheduler;
 mod templates;
+mod notes;
+mod activity;
 #[cfg(test)]
 mod replay_test;
 mod ui;
@@ -21,11 +23,15 @@ const USAGE: &str = "Docket
 Usage:
   docket [--trace DIR] [--no-browser]
                               Start the app in your browser (default from a terminal)
-  docket app [--trace DIR]       Start the app in its own windows (what Docket.app does)
+  docket app [--background] [--trace DIR]
+                              Start the app in its own windows (what Docket.app does);
+                              --background starts it in the menu bar only
   docket list [--trace DIR]      Log in from the terminal and print all reviews (read-only)
   docket run-schedules [--viewer] [--trace DIR]
-                              Check the automatic invitation schedules once, using the
+                              Check the automatic invitations and send the site notes
+                              (thanks, confirmation requests, reminders) once, using the
                               login and password saved in the Keychain (for cron/launchd).
+                              Follows Settings → Automation (pause, sending hours).
                               With --viewer nothing is sent; the log says what would be.
   docket parse FILE.html...      Show what the tool reads from saved PaperPlaza pages
   docket forget                  Remove the saved passwords from the Keychain
@@ -48,10 +54,11 @@ fn run() -> Result<()> {
     let trace = take_opt(&mut args, "--trace")?.map(PathBuf::from);
     let no_browser = take_flag(&mut args, "--no-browser");
     let viewer = take_flag(&mut args, "--viewer");
+    let background = take_flag(&mut args, "--background");
     match args.first().map(String::as_str) {
-        None if in_app_bundle() => windows(trace),
+        None if in_app_bundle() => windows(trace, background),
         None | Some("ui") => ui::serve(trace, !no_browser),
-        Some("app") => windows(trace),
+        Some("app") => windows(trace, background),
         Some("list") => list(trace),
         Some("run-schedules") => run_schedules(trace, viewer),
         Some("parse") => parse(&args[1..]),
@@ -80,12 +87,12 @@ fn in_app_bundle() -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn windows(trace: Option<PathBuf>) -> Result<()> {
-    app::run(trace)
+fn windows(trace: Option<PathBuf>, background: bool) -> Result<()> {
+    app::run(trace, background)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn windows(trace: Option<PathBuf>) -> Result<()> {
+fn windows(trace: Option<PathBuf>, _background: bool) -> Result<()> {
     ui::serve(trace, true)
 }
 
@@ -148,14 +155,22 @@ fn list(trace: Option<PathBuf>) -> Result<()> {
 }
 
 fn run_schedules(trace: Option<PathBuf>, viewer: bool) -> Result<()> {
-    let mut store = scheduler::Store::load();
-    if !store.has_active() {
-        println!("No active schedules.");
+    let cfg = creds::load_config();
+    if let Err(why) = cfg.automation.may_send(chrono::Local::now().naive_local()) {
+        println!("Nothing checked: {why}.");
         return Ok(());
     }
-    let cfg = creds::load_config();
+    let mut store = scheduler::Store::load();
+    let mut notes = notes::Notes::load();
+    let on = |store: &scheduler::Store, notes: &notes::Notes, site: &str| {
+        store.schedules.iter().any(|x| x.site == site && x.state == scheduler::State::Active) || notes.is_on(site)
+    };
+    if !papercept::SITES.iter().any(|(site, _)| on(&store, &notes, site)) {
+        println!("No active schedules and no site notes turned on.");
+        return Ok(());
+    }
     for (site, _) in papercept::SITES {
-        if !store.schedules.iter().any(|x| x.site == site && x.state == scheduler::State::Active) {
+        if !on(&store, &notes, site) {
             continue;
         }
         let Some(id) = cfg.login_for(site) else {
@@ -170,6 +185,12 @@ fn run_schedules(trace: Option<PathBuf>, viewer: bool) -> Result<()> {
         s.login(&id, &pw)?;
         for line in scheduler::run(&mut s, &mut store, None) {
             println!("{line}");
+        }
+        for line in notes::run(&mut s, &mut notes, None) {
+            println!("{line}");
+        }
+        if !notes.pending.is_empty() {
+            println!("{} site note(s) wait for your approval in the app.", notes.pending.len());
         }
         s.logout();
     }

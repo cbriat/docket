@@ -33,6 +33,123 @@ pub struct Config {
     /// windows is open.
     #[serde(default)]
     pub dock: String,
+    /// Log in with the saved password when Docket starts (needed to open at login).
+    #[serde(default)]
+    pub auto_login: bool,
+    #[serde(default)]
+    pub automation: Automation,
+    #[serde(default)]
+    pub notify: Notify,
+    /// Starting values of a new automatic invitation schedule.
+    #[serde(default)]
+    pub invite_defaults: InviteDefaults,
+    /// Starting values of a new message to reviewers.
+    #[serde(default)]
+    pub message_defaults: MessageDefaults,
+    /// How the table opens.
+    #[serde(default)]
+    pub table: TableDefaults,
+}
+
+/// When the automatic invitations and the site notes run.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Automation {
+    /// Nothing automatic runs (invitations, cancellations, site notes).
+    pub paused: bool,
+    /// Minutes between checks: 15, 30 or 60.
+    pub every_minutes: u32,
+    /// Send only from `from` to `to` o'clock (to < from: overnight); None: any time.
+    pub hours: Option<[u32; 2]>,
+    /// Send only from Monday to Friday.
+    pub weekdays_only: bool,
+}
+
+impl Default for Automation {
+    fn default() -> Self {
+        Automation { paused: false, every_minutes: 30, hours: None, weekdays_only: false }
+    }
+}
+
+impl Automation {
+    pub fn every(&self) -> std::time::Duration {
+        let m = if [15, 30, 60].contains(&self.every_minutes) { self.every_minutes } else { 30 };
+        std::time::Duration::from_secs(m as u64 * 60)
+    }
+
+    /// Whether something may be sent at `now` (local time), and if not, why.
+    pub fn may_send(&self, now: chrono::NaiveDateTime) -> Result<(), String> {
+        use chrono::{Datelike, Timelike, Weekday};
+        if self.paused {
+            return Err("all automation is paused (Settings → Automation)".into());
+        }
+        if self.weekdays_only && matches!(now.weekday(), Weekday::Sat | Weekday::Sun) {
+            return Err("sending only on weekdays (Settings → Automation)".into());
+        }
+        if let Some([from, to]) = self.hours {
+            let h = now.hour();
+            let inside = if from < to { (from..to).contains(&h) } else if from > to { h >= from || h < to } else { true };
+            if !inside {
+                return Err(format!("sending only from {from}:00 to {to}:00 (Settings → Automation)"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Which macOS notifications Docket shows.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Notify {
+    pub invitations: bool,
+    pub notes: bool,
+    pub problems: bool,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Notify { invitations: true, notes: true, problems: true }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InviteDefaults {
+    pub needed: u32,
+    pub at_once: u32,
+    /// Replace unanswered invitations after this many days (0: never).
+    pub no_answer_days: u32,
+    pub attach: bool,
+    pub copy: bool,
+}
+
+impl Default for InviteDefaults {
+    fn default() -> Self {
+        InviteDefaults { needed: 2, at_once: 3, no_answer_days: 7, attach: false, copy: false }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MessageDefaults {
+    pub cc: String,
+    pub copy_me: bool,
+    pub do_not_archive: bool,
+    pub my_eyes_only: bool,
+}
+
+impl Default for MessageDefaults {
+    fn default() -> Self {
+        MessageDefaults { cc: String::new(), copy_me: true, do_not_archive: false, my_eyes_only: false }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TableDefaults {
+    /// Status filter ("" for the first one).
+    pub filter: String,
+    pub include_all: bool,
 }
 
 impl Config {
@@ -47,6 +164,58 @@ impl Config {
             self.login_id = Some(id.to_string());
         }
     }
+}
+
+/// Label of the login item that opens Docket at login (in the menu bar).
+const LOGIN_ITEM: &str = "local.docket.Docket.login";
+
+fn login_item_path() -> PathBuf {
+    let dir = if cfg!(test) || std::env::var_os("DOCKET_CONFIG_DIR").is_some() {
+        config_dir().join("LaunchAgents")
+    } else {
+        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("Library/LaunchAgents")
+    };
+    dir.join(format!("{LOGIN_ITEM}.plist"))
+}
+
+/// Docket opens at login.
+pub fn open_at_login() -> bool {
+    login_item_path().exists()
+}
+
+/// Open Docket.app at login, in the menu bar only (`docket app --background`),
+/// or not. `exe` is Docket's program inside the app.
+pub fn set_open_at_login(on: bool, exe: &std::path::Path) -> Result<()> {
+    let path = login_item_path();
+    if !on {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        return Ok(());
+    }
+    if !exe.to_string_lossy().contains(".app/Contents/MacOS/") && !cfg!(test) {
+        anyhow::bail!("only Docket.app can open at login (not the program started from a terminal)");
+    }
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LOGIN_ITEM}</string>
+  <key>ProgramArguments</key>
+  <array><string>{}</string><string>app</string><string>--background</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+</dict>
+</plist>
+"#,
+        esc(&exe.to_string_lossy())
+    );
+    std::fs::create_dir_all(path.parent().context("no folder for the login item")?)?;
+    std::fs::write(&path, plist)?;
+    Ok(())
 }
 
 /// Keychain account name of a login on a site.
@@ -104,9 +273,10 @@ pub fn save_config(c: &Config) -> Result<()> {
 }
 
 /// The files of the settings folder that move to another computer: logins,
-/// PINs and choices, the message templates and signature, the schedules.
+/// PINs, choices and preferences, the message templates and signature, the
+/// schedules, the site notes and what was already sent.
 /// Passwords stay in the Keychain.
-const SETTINGS_FILES: [&str; 3] = ["config.json", "templates.json", "schedules.json"];
+const SETTINGS_FILES: [&str; 4] = ["config.json", "templates.json", "schedules.json", "notes.json"];
 const SETTINGS_FORMAT: &str = "Docket settings";
 
 /// All settings in one JSON document.
@@ -206,8 +376,44 @@ pub fn delete_password(_login_id: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Tests that depend on the settings folder, which settings_move_to_another_computer changes.
+    static FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn login_item() {
+        let _guard = FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let exe = std::path::Path::new("/Applications/Docket & Co.app/Contents/MacOS/docket");
+        set_open_at_login(true, exe).unwrap();
+        assert!(open_at_login());
+        let text = std::fs::read_to_string(login_item_path()).unwrap();
+        assert!(login_item_path().starts_with(config_dir()), "tests never touch ~/Library/LaunchAgents");
+        assert!(text.contains("<string>/Applications/Docket &amp; Co.app/Contents/MacOS/docket</string><string>app</string><string>--background</string>"));
+        set_open_at_login(false, exe).unwrap();
+        assert!(!open_at_login());
+    }
+
+    #[test]
+    fn sending_hours() {
+        let at = |d: u32, h: u32| chrono::NaiveDate::from_ymd_opt(2026, 11, d).unwrap().and_hms_opt(h, 30, 0).unwrap();
+        let mut a = Automation::default();
+        assert!(a.may_send(at(28, 3)).is_ok(), "any time by default (Saturday 3:30)");
+        a.hours = Some([8, 18]);
+        assert!(a.may_send(at(27, 8)).is_ok() && a.may_send(at(27, 17)).is_ok());
+        assert!(a.may_send(at(27, 18)).is_err() && a.may_send(at(27, 7)).is_err());
+        a.hours = Some([22, 6]);
+        assert!(a.may_send(at(27, 23)).is_ok() && a.may_send(at(27, 5)).is_ok() && a.may_send(at(27, 12)).is_err(), "overnight");
+        a.hours = None;
+        a.weekdays_only = true;
+        assert!(a.may_send(at(27, 12)).is_ok() && a.may_send(at(28, 12)).is_err() && a.may_send(at(29, 12)).is_err());
+        a.weekdays_only = false;
+        a.paused = true;
+        assert!(a.may_send(at(27, 12)).is_err());
+        assert_eq!(Automation { every_minutes: 7, ..Default::default() }.every().as_secs(), 1800);
+    }
+
     #[test]
     fn settings_move_to_another_computer() {
+        let _guard = FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("docket-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         unsafe { std::env::set_var("DOCKET_CONFIG_DIR", &dir) };
@@ -228,6 +434,9 @@ mod tests {
         assert!(std::fs::read_to_string(backup.join("config.json")).unwrap().contains("auto"));
 
         assert!(import_settings(&serde_json::json!({"journal": "tac"})).is_err(), "not an export");
+        // An older config.json (without the preferences) still reads, with the defaults.
+        let old: Config = serde_json::from_str(r#"{"login_id":"1","journal":null,"role_label":null}"#).unwrap();
+        assert_eq!((old.automation.every_minutes, old.notify.problems, old.invite_defaults.at_once, old.message_defaults.copy_me), (30, true, 3, true));
         let mut bad = doc.clone();
         bad["files"]["../evil.json"] = serde_json::json!({});
         assert!(import_settings(&bad).is_err(), "only the settings files");

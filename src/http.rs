@@ -14,7 +14,7 @@ const MIN_GAP: Duration = Duration::from_millis(400);
 /// Commands that only open or page through pages. In viewer mode no other
 /// command is sent.
 static VIEW_COMMANDS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(Login|Logout|Access|Access_\d+_\d+|AccessReviewerspace|Workspace|Reviewers|Refresh|Next|Previous|First|Last|GoPage\d*|Reviews\d*|Details\d*|Inspect\d*|RequestReview|Search|SubmissionDetails\d*|CancelDetails|Download\w*)$").unwrap()
+    Regex::new(r"^(Login|Logout|Access|Access_\d+_\d+|AccessReviewerspace|Workspace|Reviewers|Refresh|Reminders|SendThankYouNotesAll|SendRemindersAll|RequestConfirmationsAll|Next|Previous|First|Last|GoPage\d*|Reviews\d*|Details\d*|Inspect\d*|RequestReview|Search|SubmissionDetails\d*|CancelDetails|Download\w*)$").unwrap()
 });
 
 static FILENAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"filename\*?=(?:UTF-8'')?"?([^";]+)"?"#).unwrap());

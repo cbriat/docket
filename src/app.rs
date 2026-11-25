@@ -7,7 +7,7 @@
 //! Invitations and View menus and the menu-bar icon's menu follow it; their
 //! items are sent back to that page as `docketEvent("menu", …)`.
 //!
-//! The Dock icon is shown while a window is open (by default), always, or
+//! The Dock icon (Settings → General) is shown while a window is open (by default), always, or
 //! never. macOS shows an app's menus only while it has a Dock icon, so with
 //! "never" the menu-bar icon is the way to Docket's commands.
 
@@ -79,6 +79,12 @@ struct MenuState {
     schedules: Vec<Choice>,
     active: usize,
     paused: usize,
+    /// Site notes are on for some journal of this site.
+    notes_on: bool,
+    /// Site notes waiting for approval.
+    pending: usize,
+    /// All automation is paused (Settings → Automation).
+    paused_all: bool,
 }
 
 /// One entry of a menu the page fills: `on` is shown with a check mark.
@@ -93,7 +99,6 @@ struct Choice {
 /// The menus whose items follow the main window.
 struct Menus {
     file_items: Vec<MenuItem>,
-    dock: Vec<CheckMenuItem>,
     journal: Submenu,
     reviews: Submenu,
     invitations: Submenu,
@@ -135,6 +140,8 @@ struct Shell {
     dock: String,
     /// The Dock icon is shown now (None before the first decision).
     regular: Option<bool>,
+    /// Started at login in the menu bar only: the main window stays hidden.
+    background: bool,
 }
 
 const PREVIEW: &str = "preview";
@@ -150,9 +157,14 @@ const SHOW_MAIN: &str = "show-main";
 const PAGE: &str = "p:";
 /// Find in the window in front, whichever it is.
 const FIND: &str = "find";
-const DOCK_MODES: [(&str, &str); 3] = [("", "While a Window Is Open"), ("always", "Always"), ("never", "Never (Menu Bar Only)")];
 
-pub fn run(trace: Option<PathBuf>) -> Result<()> {
+/// `background`: started at login, in the menu bar only (the main window
+/// stays hidden until opened from the menu-bar icon).
+pub fn run(trace: Option<PathBuf>, background: bool) -> Result<()> {
+    // If Docket.app moved since "Open at login" was turned on, follow it.
+    if let (true, Ok(exe)) = (creds::open_at_login(), std::env::current_exe()) {
+        let _ = creds::set_open_at_login(true, &exe);
+    }
     let base = crate::ui::start(trace)?;
     let origin = base.split("/?").next().context("bad local address")?.to_string();
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -176,6 +188,7 @@ pub fn run(trace: Option<PathBuf>) -> Result<()> {
         tray: None,
         dock: cfg.dock,
         regular: None,
+        background,
     };
     event_loop.run(move |event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -196,7 +209,11 @@ pub fn run(trace: Option<PathBuf>) -> Result<()> {
                         std::process::exit(1);
                     }
                 }
-                shell.show_main(target);
+                if shell.background {
+                    shell.update_dock(target);
+                } else {
+                    shell.show_main(target);
+                }
             }
             // The Dock icon was clicked.
             Event::Reopen { .. } => shell.show_main(target),
@@ -301,6 +318,8 @@ fn review_items(st: &MenuState) -> Items {
         item(format!("{PAGE}remind-overdue"), format!("Remind Overdue Reviewers{}…", count(st.overdue)), act && st.overdue > 0),
         item(format!("{PAGE}nudge-unanswered"), format!("Nudge Unanswered Invitations{}…", count(st.unanswered)), act && st.unanswered > 0),
         sep(),
+        item(format!("{PAGE}notes-pending"), format!("Send Pending Site Notes{}…", count(st.pending)), st.pending > 0),
+        check(format!("{PAGE}settings:automation"), "Site Notes (Thanks, Confirmations, Reminders)…", true, st.notes_on),
         item(format!("{PAGE}templates"), "Edit Message Templates…", st.logged_in),
     ]);
     v
@@ -312,6 +331,7 @@ fn invitation_items(st: &MenuState) -> Items {
         item(format!("{PAGE}sched-run"), format!("Run Automatic Invitations Now{}…", count(st.active)), st.logged_in && st.active > 0),
         item(format!("{PAGE}sched-pause"), format!("Pause All{}", count(st.active)), st.active > 0),
         item(format!("{PAGE}sched-resume"), format!("Resume All{}", count(st.paused)), st.paused > 0),
+        check(format!("{PAGE}pause-all"), "Pause All Automation", true, st.paused_all),
         sep(),
     ];
     if st.schedules.is_empty() {
@@ -346,15 +366,9 @@ fn view_items(st: &MenuState) -> Items {
     v
 }
 
-fn dock_items(dock: &str) -> Vec<CheckMenuItem> {
-    DOCK_MODES.iter().map(|(id, label)| CheckMenuItem::with_id(format!("dock:{id}"), label, true, dock == *id, None)).collect()
-}
-
 fn build_menu() -> Result<(Menu, Menus)> {
     let cmd = |m: Modifiers, c: Code| Some(Accelerator::new(m, c));
     let shift = Modifiers::META | Modifiers::SHIFT;
-    let dock = dock_items(&creds::load_config().dock);
-    let dock_menu = Submenu::with_items("Dock Icon", true, &dock.iter().map(|c| c as &dyn IsMenuItem).collect::<Vec<_>>())?;
     let about = AboutMetadata { name: Some("Docket".into()), version: Some(env!("CARGO_PKG_VERSION").into()), ..Default::default() };
     let app = Submenu::with_items(
         "Docket",
@@ -362,7 +376,7 @@ fn build_menu() -> Result<(Menu, Menus)> {
         &[
             &PredefinedMenuItem::about(Some("About Docket"), Some(about)),
             &PredefinedMenuItem::separator(),
-            &dock_menu,
+            &MenuItem::with_id(format!("{PAGE}settings"), "Settings…", true, cmd(Modifiers::META, Code::Comma)),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::services(None),
             &PredefinedMenuItem::separator(),
@@ -426,7 +440,7 @@ fn build_menu() -> Result<(Menu, Menus)> {
     )?;
     window.set_as_windows_menu_for_nsapp();
     let menu = Menu::with_items(&[&app, &file, &edit, &view, &journal, &reviews, &invitations, &window])?;
-    Ok((menu, Menus { file_items, dock, journal, reviews, invitations, view }))
+    Ok((menu, Menus { file_items, journal, reviews, invitations, view }))
 }
 
 impl Shell {
@@ -556,25 +570,32 @@ impl Shell {
         } else {
             "No workspace open".to_string()
         };
-        let auto = format!("Automatic invitations: {} active{}", st.active, if st.paused > 0 { format!(", {} paused", st.paused) } else { String::new() });
+        let auto = if st.paused_all {
+            "All automation is paused".to_string()
+        } else {
+            format!("Automatic invitations: {} active{}", st.active, if st.paused > 0 { format!(", {} paused", st.paused) } else { String::new() })
+        };
+        let notes = format!("Site notes: {}{}", if st.notes_on { "on" } else { "off" }, if st.pending > 0 { format!(", {} waiting for approval", st.pending) } else { String::new() });
         let journal = journal_items(st);
         let journal = Submenu::with_items("Journal and Role", true, &refs(&journal))?;
-        let dock = dock_items(&self.dock);
-        let dock = Submenu::with_items("Dock Icon", true, &dock.iter().map(|c| c as &dyn IsMenuItem).collect::<Vec<_>>())?;
         let items: Items = vec![
             item("none", status, false),
             item("none", auto, false),
+            item("none", notes, false),
             sep(),
             item(SHOW_MAIN, "Open Docket", true),
             sep(),
+            item(format!("{PAGE}notes-pending"), format!("Send Pending Site Notes{}…", count(st.pending)), st.pending > 0),
             item(format!("{PAGE}sched-run"), format!("Run Automatic Invitations Now{}…", count(st.active)), st.logged_in && st.active > 0),
             item(format!("{PAGE}remind-overdue"), format!("Remind Overdue Reviewers{}…", count(st.overdue)), act && st.overdue > 0),
             item(format!("{PAGE}nudge-unanswered"), format!("Nudge Unanswered Invitations{}…", count(st.unanswered)), act && st.unanswered > 0),
             item(RELOAD, "Reload from PaperPlaza", st.mode != ""),
             sep(),
+            check(format!("{PAGE}pause-all"), "Pause All Automation", true, st.paused_all),
+            item(format!("{PAGE}settings"), "Settings…", true),
         ];
         let menu = Menu::with_items(&refs(&items))?;
-        menu.append_items(&[&journal, &dock, &PredefinedMenuItem::separator(), &MenuItem::with_id(QUIT, "Quit Docket", true, None)])?;
+        menu.append_items(&[&journal, &PredefinedMenuItem::separator(), &MenuItem::with_id(QUIT, "Quit Docket", true, None)])?;
         Ok(menu)
     }
 
@@ -585,9 +606,6 @@ impl Shell {
         refill(&self.menus.reviews, review_items(st));
         refill(&self.menus.invitations, invitation_items(st));
         refill(&self.menus.view, view_items(st));
-        for (c, (id, _)) in self.menus.dock.iter().zip(DOCK_MODES) {
-            c.set_checked(self.dock == id);
-        }
         if let Some(t) = &self.tray {
             match self.tray_menu() {
                 Ok(m) => t.set_menu(Some(Box::new(m))),
@@ -601,7 +619,10 @@ impl Shell {
     /// Run a menu command in the main window's page.
     fn page_command(&mut self, target: &EventLoopWindowTarget<UserEvent>, command: &str) {
         let (action, arg) = command.split_once(':').unwrap_or((command, ""));
-        self.show_main(target);
+        // These open their own window, or need none.
+        if !["settings", "pause-all"].contains(&action) {
+            self.show_main(target);
+        }
         self.send_menu(self.main, action, arg);
     }
 
@@ -682,6 +703,20 @@ impl Shell {
                     }
                 }
             }
+            "command" => {
+                // A menu command for the main window, asked by another window.
+                if let Some(c) = m.data.as_str() {
+                    self.page_command(target, c);
+                }
+            }
+            "dock" => {
+                // Chosen in the settings (which saved it).
+                let mode = m.data.as_str().unwrap_or_default();
+                if ["", "always", "never"].contains(&mode) {
+                    self.dock = mode.to_string();
+                    self.update_dock(target);
+                }
+            }
             "title" => {
                 if let Some(w) = self.wins.get(&from) {
                     w.window.set_title(&m.title);
@@ -704,15 +739,6 @@ impl Shell {
     fn menu(&mut self, target: &EventLoopWindowTarget<UserEvent>, id: &str) -> bool {
         if let Some(command) = id.strip_prefix(PAGE) {
             self.page_command(target, command);
-            return false;
-        }
-        if let Some(mode) = id.strip_prefix("dock:") {
-            self.dock = mode.to_string();
-            let mut cfg = creds::load_config();
-            cfg.dock = self.dock.clone();
-            let _ = creds::save_config(&cfg);
-            self.update_dock(target);
-            self.refresh_menus();
             return false;
         }
         let front = self.focused.and_then(|f| self.wins.get_mut(&f));

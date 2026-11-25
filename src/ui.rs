@@ -8,6 +8,7 @@ use crate::model::{Assignment, Candidate, InviteOptions, Paper, PaperInfo, Revie
 use crate::papercept::{ContactOptions, EXTENSIONS, SITES, Session, same_id};
 use crate::scheduler::{self, State, Store};
 use crate::templates::{self, Templates};
+use crate::notes::{Notes, Repeat, ThanksSettings};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use serde::Deserialize;
@@ -20,8 +21,6 @@ use tiny_http::{Header, Method, Request, Response, Server};
 
 const INDEX: &str = include_str!("../assets/index.html");
 const MAX_ATTACHMENT: usize = 5 * 1024 * 1024;
-/// How often the automatic invitation schedules are checked while the app is open.
-const SCHEDULE_EVERY: Duration = Duration::from_secs(30 * 60);
 
 /// Start the local server on a background thread; returns the page's address.
 pub fn start(trace: Option<PathBuf>) -> Result<String> {
@@ -152,13 +151,25 @@ impl App {
         }
     }
 
-    /// Check the schedules every SCHEDULE_EVERY, once a workspace is open.
+    /// Check the schedules and site notes every few minutes (Settings →
+    /// Automation), once a workspace is open, unless paused or outside the
+    /// sending hours (then as soon as they allow it).
     fn tick(&mut self) {
-        let due = self.last_check.is_none_or(|t| t.elapsed() >= SCHEDULE_EVERY);
-        let ready = self.session.as_ref().is_some_and(|s| s.role.is_some());
-        if due && ready && self.store.has_active() {
+        let Some(site) = self.session.as_ref().filter(|s| s.role.is_some()).map(|s| s.site().to_string()) else { return };
+        let auto = creds::load_config().automation;
+        let due = self.last_check.is_none_or(|t| t.elapsed() >= auto.every());
+        if !due || auto.may_send(chrono::Local::now().naive_local()).is_err() {
+            return;
+        }
+        let notes = Notes::load().is_on(&site);
+        if self.store.has_active() || notes {
             self.last_check = Some(Instant::now());
+        }
+        if self.store.has_active() {
             let _ = self.run_schedules(None);
+        }
+        if notes {
+            let _ = self.run_notes(None);
         }
     }
 
@@ -170,6 +181,39 @@ impl App {
         let report = scheduler::run(session, &mut self.store, only);
         session.restore(journal, role)?;
         Ok(report)
+    }
+
+    /// Check the site notes (sending those approved, with `approved`), then
+    /// return to the workspace the user was in.
+    fn run_notes(&mut self, approved: Option<&[String]>) -> Result<Vec<String>> {
+        let session = self.session.as_mut().context("not logged in")?;
+        let (journal, role) = (session.journal.clone(), session.role.clone());
+        let mut n = Notes::load();
+        let report = crate::notes::run(session, &mut n, approved);
+        session.restore(journal, role)?;
+        Ok(report)
+    }
+
+    /// The site-note settings, for the settings window (with the current journal's choice).
+    fn notes_state(&self, n: &Notes) -> Value {
+        let site = self.session.as_ref().map(|s| s.site().to_string()).unwrap_or_default();
+        let journal = self.session.as_ref().and_then(|s| s.journal.as_ref());
+        let here = journal.and_then(|j| n.place(&site, &j.code)).is_some();
+        json!({"thanks": n.thanks, "confirm": n.confirm, "remind": n.remind, "journals": n.journals, "here": here,
+               "on_here": n.is_on(&site), "pending": n.pending})
+    }
+
+    /// Everything the settings window shows.
+    fn settings(&self) -> Value {
+        let cfg = creds::load_config();
+        let exe = std::env::current_exe().unwrap_or_default();
+        json!({
+            "auto_login": cfg.auto_login, "viewer": cfg.viewer, "dock": cfg.dock,
+            "automation": cfg.automation, "notify": cfg.notify, "invite_defaults": cfg.invite_defaults,
+            "message_defaults": cfg.message_defaults, "table": cfg.table,
+            "open_at_login": creds::open_at_login(), "can_open_at_login": exe.to_string_lossy().contains(".app/Contents/MacOS/"),
+            "folder": creds::config_dir(), "notes": self.notes_state(&Notes::load()),
+        })
     }
 
     fn handle(&mut self, mut rq: Request) {
@@ -568,6 +612,116 @@ impl App {
                 let sent = session.with_relogin(|x| x.contact_staff(&paper, &to, &subject, &cc, &message, &opts, attachment.as_ref().map(|(n, b)| (n.as_str(), b.as_slice()))))?;
                 Ok(json!({"message": sent}))
             }
+            "settings" => Ok(self.settings()),
+            "settings_save" => {
+                // Only the keys given are changed.
+                let mut cfg = creds::load_config();
+                let get = |k: &str| input.get(k).cloned();
+                if let Some(v) = get("auto_login") {
+                    cfg.auto_login = serde_json::from_value(v)?;
+                }
+                if let Some(v) = get("viewer") {
+                    cfg.viewer = serde_json::from_value(v)?;
+                }
+                if let Some(v) = get("dock") {
+                    let d: String = serde_json::from_value(v)?;
+                    if !["", "always", "never"].contains(&d.as_str()) {
+                        bail!("unknown Dock choice '{d}'");
+                    }
+                    cfg.dock = d;
+                }
+                if let Some(v) = get("automation") {
+                    let a: creds::Automation = serde_json::from_value(v)?;
+                    if a.hours.is_some_and(|[f, t]| f > 23 || t > 24) {
+                        bail!("sending hours are from 0 to 24");
+                    }
+                    cfg.automation = a;
+                }
+                if let Some(v) = get("notify") {
+                    cfg.notify = serde_json::from_value(v)?;
+                }
+                if let Some(v) = get("invite_defaults") {
+                    let d: creds::InviteDefaults = serde_json::from_value(v)?;
+                    if d.needed == 0 || d.at_once < d.needed {
+                        bail!("invited at once must be at least the number of reviewers needed (at least 1)");
+                    }
+                    cfg.invite_defaults = d;
+                }
+                if let Some(v) = get("message_defaults") {
+                    cfg.message_defaults = serde_json::from_value(v)?;
+                }
+                if let Some(v) = get("table") {
+                    cfg.table = serde_json::from_value(v)?;
+                }
+                if let Some(v) = get("open_at_login") {
+                    let on: bool = serde_json::from_value(v)?;
+                    creds::set_open_at_login(on, &std::env::current_exe()?)?;
+                    if on {
+                        // Opening at login is only useful if Docket can log in by itself.
+                        cfg.auto_login = true;
+                    }
+                }
+                creds::save_config(&cfg)?;
+                Ok(self.settings())
+            }
+            "notes" => Ok(self.notes_state(&Notes::load())),
+            "notes_save" => {
+                let thanks: ThanksSettings = serde_json::from_value(input.get("thanks").cloned().unwrap_or(json!({})))?;
+                let confirm: Repeat = serde_json::from_value(input.get("confirm").cloned().unwrap_or(json!({})))?;
+                let remind: Repeat = serde_json::from_value(input.get("remind").cloned().unwrap_or(json!({})))?;
+                let site = self.session.as_ref().map(|x| x.site().to_string()).unwrap_or_default();
+                let journal = self.session.as_ref().and_then(|x| x.journal.clone());
+                let here = input.get("here").and_then(Value::as_bool);
+                let mut n = Notes::load();
+                let place = match (&journal, here) {
+                    (Some(j), Some(on)) => Some((site.as_str(), j.code.as_str(), j.name.as_str(), on)),
+                    _ => None,
+                };
+                n.set(thanks, confirm, remind, place, chrono::Local::now().date_naive());
+                n.save()?;
+                Ok(self.notes_state(&n))
+            }
+            "notes_remove_place" => {
+                let mut n = Notes::load();
+                n.remove_place(&s("site"), &s("journal"));
+                n.save()?;
+                Ok(self.notes_state(&n))
+            }
+            "notes_run" => {
+                let report = self.run_notes(None)?;
+                let mut v = self.notes_state(&Notes::load());
+                v["report"] = json!(report);
+                Ok(v)
+            }
+            "notes_send" => {
+                let keys: Vec<String> = serde_json::from_value(input.get("keys").cloned().unwrap_or(json!([])))?;
+                if keys.is_empty() {
+                    bail!("select at least one note");
+                }
+                let report = self.run_notes(Some(&keys))?;
+                let mut v = self.notes_state(&Notes::load());
+                v["report"] = json!(report);
+                Ok(v)
+            }
+            "automation_status" => {
+                let cfg = creds::load_config();
+                let site = self.session.as_ref().map(|x| x.site().to_string()).unwrap_or_default();
+                let n = Notes::load();
+                Ok(json!({"paused": cfg.automation.paused, "pending": n.pending.iter().filter(|p| p.site == site).count(), "notes_on": n.is_on(&site)}))
+            }
+            "activity" => {
+                let mut all = crate::activity::load();
+                all.reverse();
+                Ok(json!({"entries": all}))
+            }
+            "reveal_settings" => {
+                let dir = creds::config_dir();
+                std::fs::create_dir_all(&dir)?;
+                if !cfg!(test) {
+                    std::process::Command::new("open").arg(&dir).spawn()?;
+                }
+                Ok(json!({}))
+            }
             "schedule_preview" => {
                 let session = self.session.as_mut().context("not logged in")?;
                 let (journal, role) = (session.journal.clone(), session.role.clone());
@@ -690,13 +844,15 @@ impl App {
         let site = self.session.as_ref().map(|s| s.site().to_string()).or(cfg.site.clone()).unwrap_or_else(|| SITES[0].0.to_string());
         let mine = sites.iter().find(|x| x["host"] == site.as_str()).cloned().unwrap_or(json!({}));
         let (saved_id, has_saved_password) = (mine["login_id"].as_str().unwrap_or("").to_string(), mine["has_saved_password"].as_bool().unwrap_or(false));
+        let prefs = json!({"invite_defaults": cfg.invite_defaults, "message_defaults": cfg.message_defaults, "table": cfg.table});
         match &self.session {
             None => json!({"logged_in": false, "site": site, "sites": sites, "login_id": saved_id, "has_saved_password": has_saved_password,
-                           "saved_journal": cfg.journal, "saved_role": cfg.role_label, "saved_viewer": cfg.viewer}),
+                           "saved_journal": cfg.journal, "saved_role": cfg.role_label, "saved_viewer": cfg.viewer,
+                           "auto_login": cfg.auto_login, "prefs": prefs}),
             Some(s) => json!({
                 "logged_in": true, "site": site, "sites": sites, "login_id": s.login_id(), "has_saved_password": has_saved_password, "viewer": s.viewer(),
                 "journals": s.journals, "journal": s.journal, "roles": s.roles, "role": s.role,
-                "saved_journal": cfg.journal, "saved_role": cfg.role_label,
+                "saved_journal": cfg.journal, "saved_role": cfg.role_label, "prefs": prefs,
             }),
         }
     }

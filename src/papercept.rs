@@ -884,6 +884,125 @@ impl Session {
         Ok(format!("Sent{}.", if to.is_empty() { String::new() } else { format!(" to {to}") }))
     }
 
+    /// Open the site's "Send Thank You Notes" page (Reminders and thanks →
+    /// "Send a thank you note for all or some reviews…") of the open journal.
+    fn open_thank_you_notes(&mut self) -> Result<()> {
+        self.goto_workspace()?;
+        self.cmd("Reminders")?;
+        self.cmd("SendThankYouNotesAll")?;
+        let p = self.current()?;
+        if !p.form().is_some_and(|f| f.action.ends_with("/sendthankyounotes.pl")) {
+            bail!("opened '{}' instead of the Send Thank You Notes page", p.title);
+        }
+        Ok(())
+    }
+
+    /// The reviews the site has not yet thanked (its Send Thank You Notes list).
+    pub fn unthanked(&mut self) -> Result<Vec<Unthanked>> {
+        self.open_thank_you_notes()?;
+        Ok(parse_unthanked(self.current()?))
+    }
+
+    /// Send the site's own thank-you notes, with its own letters, to exactly
+    /// the boxes named in `boxes` (see Unthanked). Errors before anything is
+    /// sent are returned as Err; once the notes were submitted, the result says
+    /// what the list shows afterwards, so the caller can tell what was sent.
+    pub fn send_thank_you_notes(&mut self, boxes: &[String], copy_me: bool) -> Result<AfterSend<Unthanked>> {
+        if boxes.is_empty() {
+            bail!("no review to thank");
+        }
+        self.open_thank_you_notes()?;
+        let page = self.page.as_ref().ok_or_else(|| anyhow!("not logged in"))?;
+        let mut form = page.form().context("the Send Thank You Notes page has no form")?.clone();
+        let offered: Vec<String> = form.controls.iter().filter(|c| c.name.starts_with("ThankYouFor")).map(|c| c.name.clone()).collect();
+        if let Some(gone) = boxes.iter().find(|b| !offered.contains(b)) {
+            bail!("{gone} is no longer on the site's list");
+        }
+        for name in &offered {
+            form.set_checked(name, boxes.contains(name));
+        }
+        form.set_checked("C1", false);
+        form.set_checked("C2", false);
+        form.set_checked("SendCopies", copy_me);
+        for (prefix, letter) in [("ThankYouForAccepting", "Cover_message_1"), ("ThankYouForSubmitting", "Cover_message_2")] {
+            if boxes.iter().any(|b| b.starts_with(prefix)) && form.value(letter).is_none_or(|v| v.trim().is_empty()) {
+                bail!("the site's thank-you letter ({letter}) is empty");
+            }
+        }
+        let result = self.http.submit(page, &form, Some("SendThankYouNotes"));
+        let after = match result {
+            Err(e) => return Ok(AfterSend { problem: Some(format!("{e:#}")), remaining: None }),
+            Ok(p) if p.is_login_form() => {
+                self.page = None;
+                return Ok(AfterSend { problem: Some("the session expired while sending".into()), remaining: None });
+            }
+            Ok(p) => p,
+        };
+        let msg = server_message(&after);
+        self.page = Some(after);
+        match self.unthanked() {
+            Ok(remaining) => Ok(AfterSend { problem: None, remaining: Some(remaining) }),
+            Err(e) => Ok(AfterSend { problem: Some(format!("sent, but the list could not be read again ({e:#}){}", msg.map(|m| format!("; the site said: {m}")).unwrap_or_default())), remaining: None }),
+        }
+    }
+
+    /// Open one of the site's reminder lists (Reminders and thanks).
+    fn open_site_list(&mut self, which: SiteList) -> Result<()> {
+        self.goto_workspace()?;
+        self.cmd("Reminders")?;
+        self.cmd(which.command())?;
+        let p = self.current()?;
+        if !p.form().is_some_and(|f| f.action.ends_with(which.script())) {
+            bail!("opened '{}' instead of the {} page", p.title, which.title());
+        }
+        Ok(())
+    }
+
+    /// The reviews on one of the site's reminder lists.
+    pub fn site_list(&mut self, which: SiteList) -> Result<Vec<SiteItem>> {
+        self.open_site_list(which)?;
+        Ok(parse_site_list(self.current()?))
+    }
+
+    /// Send the site's own reminders or confirmation requests, with its own
+    /// letter, to exactly the reviews `review_ids`. As send_thank_you_notes:
+    /// Err only when nothing was sent.
+    pub fn send_site_list(&mut self, which: SiteList, review_ids: &[String], copy_me: bool, attach: bool) -> Result<AfterSend<SiteItem>> {
+        if review_ids.is_empty() {
+            bail!("no review selected");
+        }
+        self.open_site_list(which)?;
+        let page = self.page.as_ref().ok_or_else(|| anyhow!("not logged in"))?;
+        let mut form = page.form().with_context(|| format!("the {} page has no form", which.title()))?.clone();
+        let offered: Vec<(String, String)> = form.controls.iter().filter(|c| c.name.starts_with("Include")).map(|c| (c.name.clone(), c.value.clone())).collect();
+        if let Some(gone) = review_ids.iter().find(|id| !offered.iter().any(|(_, v)| v == *id)) {
+            bail!("review {gone} is no longer on the site's {} list", which.title());
+        }
+        for (name, value) in &offered {
+            form.set_checked(name, review_ids.contains(value));
+        }
+        form.set_checked("CheckAll", false);
+        form.set_checked("SendCopies", copy_me);
+        form.set_checked("AttachSubmission", attach);
+        if form.value("Cover_message").is_none_or(|v| v.trim().is_empty()) {
+            bail!("the site's letter is empty");
+        }
+        let after = match self.http.submit(page, &form, Some("SendReminders")) {
+            Err(e) => return Ok(AfterSend { problem: Some(format!("{e:#}")), remaining: None }),
+            Ok(p) if p.is_login_form() => {
+                self.page = None;
+                return Ok(AfterSend { problem: Some("the session expired while sending".into()), remaining: None });
+            }
+            Ok(p) => p,
+        };
+        let msg = server_message(&after);
+        self.page = Some(after);
+        match self.site_list(which) {
+            Ok(remaining) => Ok(AfterSend { problem: None, remaining: Some(remaining) }),
+            Err(e) => Ok(AfterSend { problem: Some(format!("sent, but the list could not be read again ({e:#}){}", msg.map(|m| format!("; the site said: {m}")).unwrap_or_default())), remaining: None }),
+        }
+    }
+
     /// Open the paper's "Contact One or Several Editorial Staff Members" page
     /// (the Contact link of its submission menu, from Manage Reviews).
     fn open_staff_contact(&mut self, paper: &Paper) -> Result<()> {
@@ -1544,6 +1663,115 @@ pub fn parse_handlers(page: &Page) -> Vec<Handler> {
         let parts: Vec<&str> = text.rsplitn(4, ',').map(str::trim).collect();
         let [email, pin, role, name] = parts[..] else { continue };
         out.push(Handler { name: name.into(), role: role.into(), pin: pin.into(), email: email.into(), address });
+    }
+    out
+}
+
+/// What happened after notes were submitted on one of the site's
+/// "Reminders and thanks" pages.
+pub struct AfterSend<T> {
+    pub problem: Option<String>,
+    /// The site's list read again afterwards.
+    pub remaining: Option<Vec<T>>,
+}
+
+/// The site's lists of reviews to remind (Reminders and thanks page).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SiteList {
+    /// "Send review reminders for some or all unfulfilled review requests".
+    Reminders,
+    /// "Request confirmation of some or all unconfirmed review requests".
+    Confirmations,
+}
+
+impl SiteList {
+    fn command(self) -> &'static str {
+        match self {
+            SiteList::Reminders => "SendRemindersAll",
+            SiteList::Confirmations => "RequestConfirmationsAll",
+        }
+    }
+    fn script(self) -> &'static str {
+        match self {
+            SiteList::Reminders => "/sendreminders.pl",
+            SiteList::Confirmations => "/requestconfirmations.pl",
+        }
+    }
+    fn title(self) -> &'static str {
+        match self {
+            SiteList::Reminders => "Send Review Reminders",
+            SiteList::Confirmations => "Request Review Confirmations",
+        }
+    }
+}
+
+/// The rows of a Send Review Reminders or Request Review Confirmations page,
+/// read by column name.
+pub fn parse_site_list(page: &Page) -> Vec<SiteItem> {
+    let doc = page.doc();
+    let rows: Vec<ElementRef> = doc.select(&sel("tr")).collect();
+    let Some(head) = rows.iter().map(tds).find(|cs| cs.iter().any(|c| element_text(c).trim() == "Review ID")) else { return Vec::new() };
+    let names: Vec<String> = head.iter().map(|c| element_text(c).trim().to_string()).collect();
+    let col = |n: &str| names.iter().position(|x| x == n);
+    let (id, rev, sub) = (col("Review ID"), col("Reviewer"), col("Submission number"));
+    let status = col("Review status");
+    let days = col("Days overdue").or(col("Days elapsed"));
+    let prev = col("Previous reminders").or(col("Previous confirmation requests"));
+    let mut out = Vec::new();
+    for tr in &rows {
+        let cs = tds(tr);
+        let Some(cb) = tr.select(&sel("input[type=checkbox]")).find(|i| i.value().attr("name").is_some_and(|n| n.starts_with("Include"))) else { continue };
+        let text = |i: Option<usize>| i.and_then(|i| cs.get(i)).map(cell_text).unwrap_or_default();
+        let review_id = text(id);
+        if review_id.is_empty() || cb.value().attr("value") != Some(review_id.as_str()) {
+            continue;
+        }
+        let status_raw = text(status);
+        let mut previous: Vec<chrono::NaiveDate> = DATE_IN.find_iter(&text(prev)).filter_map(|m| parse_date(m.as_str())).collect();
+        previous.sort();
+        out.push(SiteItem {
+            review_id,
+            checkbox: cb.value().attr("name").unwrap_or_default().to_string(),
+            reviewer: text(rev),
+            paper: text(sub),
+            due: parse_status(&status_raw).due,
+            status_raw,
+            days: text(days).replace('\u{2212}', "-").trim().parse().ok(),
+            previous,
+        });
+    }
+    out
+}
+
+
+/// The rows of the Send Thank You Notes page.
+pub fn parse_unthanked(page: &Page) -> Vec<Unthanked> {
+    let doc = page.doc();
+    let mut out = Vec::new();
+    for tr in doc.select(&sel("tr")) {
+        let cs = tds(&tr);
+        if cs.len() < 9 {
+            continue;
+        }
+        let review_id = cell_text(&cs[3]);
+        if review_id.is_empty() || !review_id.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let boxed = |c: &ElementRef, prefix: &str| {
+            c.select(&sel("input[type=checkbox]")).filter_map(|i| i.value().attr("name")).find(|n| n.starts_with(prefix)).map(String::from)
+        };
+        let status_raw = cell_text(&cs[4]);
+        let s = parse_status(&status_raw);
+        out.push(Unthanked {
+            review_id,
+            state: s.state,
+            date: s.date,
+            status_raw,
+            reviewer: cell_text(&cs[5]),
+            paper: cell_text(&cs[8]),
+            accept_box: boxed(&cs[1], "ThankYouForAccepting"),
+            review_box: boxed(&cs[2], "ThankYouForSubmitting"),
+        });
     }
     out
 }

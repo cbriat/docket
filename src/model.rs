@@ -106,6 +106,45 @@ pub struct ReviewDates {
     pub last_reminder: Option<NaiveDate>,
 }
 
+/// A review listed on the site's "Send Thank You Notes" page: confirmed or
+/// received, and not yet thanked by the site for that.
+#[derive(Clone, Debug, Serialize)]
+pub struct Unthanked {
+    pub review_id: String,
+    pub status_raw: String,
+    pub state: String,
+    pub date: Option<NaiveDate>,
+    /// "Doe, Jane (12345)".
+    pub reviewer: String,
+    /// Submission number with version, e.g. "26-1234.1".
+    pub paper: String,
+    /// Name of the "for agreeing to review" box, if offered.
+    pub accept_box: Option<String>,
+    /// Name of the "for submitting a review" box, if offered.
+    pub review_box: Option<String>,
+}
+
+/// A review listed on the site's "Send Review Reminders" or "Request Review
+/// Confirmations" page.
+#[derive(Clone, Debug, Serialize)]
+pub struct SiteItem {
+    pub review_id: String,
+    /// Name of its box on the page ("Include3").
+    pub checkbox: String,
+    /// "Doe, Jane (12345)".
+    pub reviewer: String,
+    /// Submission number with version, e.g. "26-1234.1".
+    pub paper: String,
+    /// Reminders: the review status, with the due date.
+    pub status_raw: String,
+    pub due: Option<NaiveDate>,
+    /// Reminders: days overdue (negative before the due date).
+    /// Confirmations: days since the review was requested.
+    pub days: Option<i64>,
+    /// Reminders or confirmation requests already sent, oldest first.
+    pub previous: Vec<NaiveDate>,
+}
+
 /// One answer in a review form ("Comments to the author", …).
 #[derive(Clone, Debug, Serialize)]
 pub struct Answer {

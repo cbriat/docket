@@ -151,5 +151,25 @@
     "reviews": 12,
     "warnings": 5,
     "candidates_min_pin": "150000"
+  },
+  "thanks": {
+    "review_id": "400003",
+    "rows": 1,
+    "paper": "26-1234.1",
+    "reviewer": "Doe, Jane (12345)"
+  },
+  "site_lists": {
+    "reminders": {
+      "rows": 3,
+      "early_id": "400010",
+      "early_days": -3,
+      "twice_id": "400011",
+      "twice_days": 53
+    },
+    "confirmations": {
+      "rows": 2,
+      "first_id": "400020",
+      "first_days": 32
+    }
   }
 }

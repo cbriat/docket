@@ -96,6 +96,12 @@ pub(crate) fn serve(dir: String) -> (String, Arc<Mutex<Vec<Seen>>>) {
                 (_, "Reviews") => "Manage Reviews.html",
                 (_, "ContactReviewer") => "Contact the Reviewer.html",
                 (_, "Contact") => "Contact One or Several Editorial Staff Members.html",
+                (_, "Reminders") => "Manage Reminders and Thanks.html",
+                (_, "SendThankYouNotesAll") => "Send Thank You Notes.html",
+                // The page after sending was not saved; the list is read again from the workspace.
+                (_, "SendThankYouNotes" | "SendReminders") => "Manage Reminders and Thanks.html",
+                (_, "SendRemindersAll") => "Send Review Reminders.html",
+                (_, "RequestConfirmationsAll") => "Request Review Confirmations.html",
                 (_, "RequestReview") => "Request a Review.html",
                 (_, "Details") => "Database Entry of IEEE-TAC Submission 26-2586. - Details.html",
                 (_, "Reviewers") => "Reviewers List - 2.html",
@@ -305,7 +311,7 @@ fn viewer_mode() {
     for x in &sent {
         let b = String::from_utf8_lossy(&x.body);
         let cmd = b.split('&').find_map(|kv| kv.strip_prefix("Command=")).unwrap_or("");
-        let changes = ["CancelReview", "UnCancelReview", "SendMessage", "ContactReviewer", "SendReviewReminder", "RegisterAsConfirmed", "SendReviewCancellationNotice"];
+        let changes = ["CancelReview", "UnCancelReview", "SendMessage", "ContactReviewer", "SendReviewReminder", "RegisterAsConfirmed", "SendReviewCancellationNotice", "SendThankYouNotes", "SendReminders"];
         assert!(!changes.contains(&cmd), "viewer mode sent {cmd}: {}", x.path);
         assert!(!x.path.ends_with("_aja.pl"), "viewer mode sent an AJAX change");
         assert!(!x.content_type.starts_with("multipart"), "viewer mode sent a multipart form");
@@ -644,4 +650,100 @@ fn contact_staff() {
     }
     assert_eq!(multipart_value(&body, "To").as_deref(), Some(se.address.as_str()));
     assert!(multipart_value(&body, "MyEyesOnly").is_none());
+}
+
+#[test]
+#[ignore]
+fn site_notes() {
+    use crate::notes::{Kind, Notes, Repeat, Rule, ThanksSettings};
+    let Ok(dir) = std::env::var("DOCKET_CAPTURES") else { return };
+    let read = |file: &str, script: &str| {
+        let html = encoding_rs::WINDOWS_1252.decode(&std::fs::read(format!("{dir}/{file}")).unwrap()).0.into_owned();
+        crate::page::Page::parse(&format!("https://css.paperplaza.net/journals/tac/scripts/{script}"), html)
+    };
+    // The site's three lists.
+    let id = x("thanks.review_id");
+    let accept_box = format!("ThankYouForAccepting{id}");
+    let list = crate::papercept::parse_unthanked(&read("Send Thank You Notes.html", "sendthankyounotes.pl"));
+    assert_eq!(list.len(), xn("thanks.rows"));
+    let u = list.iter().find(|u| u.review_id == id).unwrap();
+    assert_eq!((u.state.as_str(), u.paper.clone(), u.reviewer.clone()), ("Confirmed", x("thanks.paper"), x("thanks.reviewer")));
+    assert_eq!((u.accept_box.clone(), u.review_box.clone()), (Some(accept_box.clone()), None));
+    let rem = crate::papercept::parse_site_list(&read("Send Review Reminders.html", "sendreminders.pl"));
+    assert_eq!(rem.len(), xn("site_lists.reminders.rows"));
+    let early = rem.iter().find(|i| i.review_id == x("site_lists.reminders.early_id")).unwrap();
+    assert_eq!(early.days, Some(xv("site_lists.reminders.early_days").as_i64().unwrap()), "negative days are read (written with a minus sign)");
+    assert!(early.due.is_some() && early.previous.is_empty());
+    let twice = rem.iter().find(|i| i.review_id == x("site_lists.reminders.twice_id")).unwrap();
+    assert_eq!((twice.days, twice.previous.len()), (Some(xv("site_lists.reminders.twice_days").as_i64().unwrap()), 2));
+    assert!(twice.previous[0] < twice.previous[1] && rem.iter().all(|i| i.checkbox.starts_with("Include") && !i.paper.is_empty() && !i.reviewer.is_empty()));
+    let conf = crate::papercept::parse_site_list(&read("Request Review Confirmations.html", "requestconfirmations.pl"));
+    assert_eq!(conf.len(), xn("site_lists.confirmations.rows"));
+    assert_eq!((conf[0].review_id.clone(), conf[0].days), (x("site_lists.confirmations.first_id"), Some(xv("site_lists.confirmations.first_days").as_i64().unwrap())));
+
+    let (base, seen) = serve(dir.clone());
+    let long_ago = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+    let on = |r: bool| Rule { on: r, since: None };
+    let fresh = |accept: bool, confirm: bool, remind: bool, ask: bool| {
+        let mut n = Notes::default();
+        let rep = |on: bool, max: u32| Repeat { on, after_days: 7, max, ask, copy_me: true, attach: true };
+        n.set(ThanksSettings { accept: on(accept), review: on(false), copy_me: false, ask }, rep(confirm, 2), rep(remind, 3), Some((crate::papercept::SITES[0].0, "tac", "IEEE-TAC", true)), long_ago);
+        n
+    };
+    let sends = |cmd: &str| {
+        let want = format!("Command={cmd}");
+        seen.lock().unwrap().iter().filter(|q| String::from_utf8_lossy(&q.body).split('&').any(|kv| kv == want)).map(|q| (q.path.clone(), String::from_utf8_lossy(&q.body).into_owned())).collect::<Vec<_>>()
+    };
+    let checked = |body: &str, prefix: &str| body.split('&').filter(|kv| kv.starts_with(prefix)).map(String::from).collect::<Vec<_>>();
+
+    // Viewer mode reads the lists but sends and records nothing.
+    let mut n = fresh(true, true, true, false);
+    let report = crate::notes::run(&mut editor(&base, true), &mut n, None);
+    assert!(report.iter().any(|l| l.contains("viewer mode — would send a thank-you note")), "{report:#?}");
+    assert!(report.iter().any(|l| l.contains("viewer mode — would send a review reminder")), "{report:#?}");
+    assert!(sends("SendThankYouNotes").is_empty() && sends("SendReminders").is_empty() && n.done.is_empty());
+
+    // Ask me first: everything due is held, nothing sent.
+    let mut s = editor(&base, false);
+    let mut n = fresh(true, true, true, true);
+    crate::notes::run(&mut s, &mut n, None);
+    assert!(sends("SendThankYouNotes").is_empty() && sends("SendReminders").is_empty() && n.done.is_empty());
+    let kinds = |n: &Notes, k: Kind| n.pending.iter().filter(|p| p.kind == k).count();
+    let (held_r, held_c) = (kinds(&n, Kind::Remind), kinds(&n, Kind::Confirm));
+    assert!(kinds(&n, Kind::Accept) == 1 && held_r > 0 && held_c > 0, "{:#?}", n.pending);
+    assert!(!n.pending.iter().any(|p| p.review_id == x("site_lists.reminders.early_id") && p.kind == Kind::Remind), "not overdue");
+    assert!(n.pending.iter().any(|p| p.review_id == x("site_lists.reminders.twice_id") && p.kind == Kind::Remind), "reminded twice, at most 3");
+    // Approving one reminder sends only that one, with the site's options; the others stay held.
+    let one = n.pending.iter().find(|p| p.kind == Kind::Remind).unwrap().clone();
+    crate::notes::run(&mut s, &mut n, Some(&[one.key.clone()]));
+    let sent = sends("SendReminders");
+    assert_eq!(sent.len(), 1);
+    let (path, body) = &sent[0];
+    assert!(path.ends_with("/journals/tac/scripts/sendreminders.pl"), "{path}");
+    let boxes = checked(body, "Include");
+    assert_eq!(boxes.len(), 1, "{boxes:?}");
+    assert!(boxes[0].ends_with(&format!("={}", one.review_id)));
+    assert!(body.split('&').any(|kv| kv == "SendCopies=ON") && body.split('&').any(|kv| kv == "AttachSubmission=ON") && !body.split('&').any(|kv| kv.starts_with("CheckAll=")));
+    assert!(body.contains("Cover_message=Dear+%25YOUR_TITLE%25"), "the site's letter, unchanged");
+    assert_eq!(n.done.len(), 1);
+    assert!(n.done[0].outcome.starts_with("not confirmed"), "the saved list does not change after sending: {}", n.done[0].outcome);
+    assert_eq!((kinds(&n, Kind::Remind), kinds(&n, Kind::Confirm)), (held_r - 1, held_c));
+    assert!(crate::activity::load().iter().any(|e| e.kind == "reminder" && e.paper == one.paper));
+
+    // Sent right away: thank-you note and confirmation requests (at most 2, the site's earlier ones count).
+    let mut n = fresh(true, true, false, false);
+    let report = crate::notes::run(&mut s, &mut n, None);
+    let thanks = sends("SendThankYouNotes");
+    assert_eq!(thanks.len(), 1, "{report:#?}");
+    assert_eq!(checked(&thanks[0].1, "ThankYouFor"), [format!("{accept_box}=ON")]);
+    assert!(thanks[0].1.contains("Cover_message_1=Dear+%25YOUR_TITLE%25"));
+    let conf_sent = sends("SendReminders");
+    assert_eq!(conf_sent.len(), 2);
+    assert!(conf_sent[1].0.ends_with("/requestconfirmations.pl"));
+    let due_conf = conf.iter().filter(|i| i.days.unwrap() >= 7 && i.previous.len() < 2 && i.previous.last().is_none_or(|d| (chrono::Local::now().date_naive() - *d).num_days() >= 7)).count();
+    assert_eq!(checked(&conf_sent[1].1, "Include").len(), due_conf);
+    assert!(n.pending.is_empty());
+    // Checked again: nothing is sent twice.
+    let again = crate::notes::run(&mut s, &mut n, None);
+    assert_eq!((sends("SendThankYouNotes").len(), sends("SendReminders").len()), (1, 2), "{again:#?}");
 }
