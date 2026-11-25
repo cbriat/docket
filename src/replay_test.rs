@@ -337,6 +337,7 @@ fn viewer_mode() {
     assert!(!cands.iter().find(|c| c.pin == x("candidates.unavailable_pin")).unwrap().available);
 
     // A schedule checked in viewer mode records what it would do.
+    let _guard = crate::creds::folder_lock();
     let cfg = std::env::temp_dir().join(format!("docket-viewer-{}", std::process::id()));
     unsafe { std::env::set_var("DOCKET_CONFIG_DIR", &cfg) };
     let mut store = crate::scheduler::Store::default();
@@ -657,6 +658,7 @@ fn contact_staff() {
 fn site_notes() {
     use crate::notes::{Kind, Notes, Repeat, Rule, ThanksSettings};
     let Ok(dir) = std::env::var("DOCKET_CAPTURES") else { return };
+    let _guard = crate::creds::folder_lock();
     let read = |file: &str, script: &str| {
         let html = encoding_rs::WINDOWS_1252.decode(&std::fs::read(format!("{dir}/{file}")).unwrap()).0.into_owned();
         crate::page::Page::parse(&format!("https://css.paperplaza.net/journals/tac/scripts/{script}"), html)

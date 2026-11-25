@@ -104,6 +104,9 @@ struct App {
     assignments: Vec<Assignment>,
     /// Files downloaded this session, served at /file/<index>.
     files: Vec<Stored>,
+    /// Raised whenever reviews are re-read without the page asking (automatic
+    /// invitations), so the page knows to fetch them again.
+    reviews_rev: u64,
 }
 
 /// A downloaded file kept in creds::files_dir().
@@ -148,6 +151,7 @@ impl App {
             dates: HashMap::new(),
             assignments: Vec::new(),
             files: Vec::new(),
+            reviews_rev: 0,
         }
     }
 
@@ -173,14 +177,41 @@ impl App {
         }
     }
 
-    /// Run the schedules, then return to the workspace the user was in.
+    /// Run the schedules, then return to the workspace the user was in and
+    /// re-read the reviewers of the papers shown whose schedule did something.
     fn run_schedules(&mut self, only: Option<u64>) -> Result<Vec<String>> {
         let session = self.session.as_mut().context("not logged in")?;
         let (journal, role) = (session.journal.clone(), session.role.clone());
         self.store = Store::load();
+        let before = self.store.schedules.iter().map(|s| (s.id, fingerprint(s))).collect::<HashMap<_, _>>();
         let report = scheduler::run(session, &mut self.store, only);
         session.restore(journal, role)?;
+        let site = session.site().to_string();
+        let here = session.journal.as_ref().map(|j| j.code.clone()).unwrap_or_default();
+        let changed: Vec<String> = self
+            .store
+            .schedules
+            .iter()
+            .filter(|s| s.site == site && s.journal == here && before.get(&s.id) != Some(&fingerprint(s)))
+            .map(|s| s.paper_id.clone())
+            .collect();
+        for pid in changed {
+            if self.papers.iter().any(|p| same_id(&p.id, &pid)) {
+                let _ = self.refresh_paper(&pid);
+            }
+        }
         Ok(report)
+    }
+
+    /// Read one paper's reviews again from PaperPlaza.
+    fn refresh_paper(&mut self, id: &str) -> Result<()> {
+        let paper = self.paper(id)?;
+        let session = self.session.as_mut().context("not logged in")?;
+        let fresh = session.with_relogin(|s| s.load_reviews(&paper))?;
+        self.reviews.retain(|r| r.paper_id != paper.id);
+        self.reviews.extend(fresh);
+        self.reviews_rev += 1;
+        Ok(())
     }
 
     /// Check the site notes (sending those approved, with `approved`), then
@@ -381,6 +412,10 @@ impl App {
                 let (subject, message) = self.fill_for(&r, &s("subject"), &s("message"))?;
                 Ok(json!({"subject": subject, "message": message}))
             }
+            "refresh_paper" => {
+                self.refresh_paper(&s("paper_id"))?;
+                Ok(json!({"reviews": self.reviews, "reviews_rev": self.reviews_rev}))
+            }
             "snapshot" => {
                 // What the main window shows, for the other windows (nothing is read from the site).
                 let reviewer = self.session.as_ref().and_then(|s| s.role.as_ref()).is_some_and(|r| r.kind == RoleKind::Reviewer);
@@ -546,10 +581,9 @@ impl App {
                         }
                     }
                 }
-                let fresh = session.with_relogin(|x| x.load_reviews(&paper))?;
-                self.reviews.retain(|r| r.paper_id != paper.id);
-                self.reviews.extend(fresh);
-                Ok(json!({"results": results, "reviews": self.reviews}))
+                // The invitations went out: a failure to re-read the list is only a warning.
+                let warning = self.refresh_paper(&paper.id).err().map(|e| format!("The reviewers of {} could not be read again ({e:#}); use Refresh this paper.", paper.number));
+                Ok(json!({"results": results, "reviews": self.reviews, "warning": warning}))
             }
             "schedules" => {
                 self.store = Store::load();
@@ -576,12 +610,12 @@ impl App {
                 }
                 self.store.save()?;
                 let report = self.run_schedules(Some(id))?;
-                Ok(json!({"schedules": self.store.schedules, "report": report, "id": id}))
+                Ok(json!({"schedules": self.store.schedules, "report": report, "id": id, "reviews": self.reviews}))
             }
             "schedule_run" => {
                 let id = input.get("id").and_then(Value::as_u64);
                 let report = self.run_schedules(id)?;
-                Ok(json!({"schedules": self.store.schedules, "report": report}))
+                Ok(json!({"schedules": self.store.schedules, "report": report, "reviews": self.reviews}))
             }
             "staff_contacts" => {
                 let paper = self.paper(&s("paper_id"))?;
@@ -707,7 +741,8 @@ impl App {
                 let cfg = creds::load_config();
                 let site = self.session.as_ref().map(|x| x.site().to_string()).unwrap_or_default();
                 let n = Notes::load();
-                Ok(json!({"paused": cfg.automation.paused, "pending": n.pending.iter().filter(|p| p.site == site).count(), "notes_on": n.is_on(&site)}))
+                Ok(json!({"paused": cfg.automation.paused, "pending": n.pending.iter().filter(|p| p.site == site).count(), "notes_on": n.is_on(&site),
+                          "reviews_rev": self.reviews_rev}))
             }
             "activity" => {
                 let mut all = crate::activity::load();
@@ -1038,6 +1073,7 @@ mod tests {
     fn ui_replay() {
         use crate::replay_test::{x, xn};
         let Ok(dir) = std::env::var("DOCKET_CAPTURES") else { return };
+        let _guard = creds::folder_lock();
         let (base, seen) = crate::replay_test::serve(dir);
         let cfg = std::env::temp_dir().join(format!("docket-test-{}", std::process::id()));
         unsafe {
@@ -1064,6 +1100,18 @@ mod tests {
         // The replay only has the reviews pages of two papers; the others must be reported, not abort the load.
         assert_eq!(loaded["reviews"].as_array().unwrap().len(), xn("ui.reviews"));
         assert_eq!(loaded["warnings"].as_array().unwrap().len(), xn("ui.warnings"), "{}", loaded["warnings"]);
+
+        // Refreshing one paper re-reads only its reviews and keeps the others.
+        let of = |j: &Value, pid: &str| j["reviews"].as_array().unwrap().iter().filter(|r| r["paper_id"] == pid).count();
+        let before = seen.lock().unwrap().len();
+        let fresh = app.api("refresh_paper", json!({"paper_id": x("paper.id")})).unwrap();
+        assert_eq!(fresh["reviews"].as_array().unwrap().len(), xn("ui.reviews"));
+        assert_eq!(of(&fresh, &x("paper.id")), of(&loaded, &x("paper.id")));
+        assert!(of(&fresh, &x("paper.id")) > 0);
+        assert_eq!(fresh["reviews_rev"], 1);
+        assert_eq!(app.api("automation_status", json!({})).unwrap()["reviews_rev"], 1);
+        assert!(seen.lock().unwrap().len() > before, "read from the site");
+        assert!(app.api("refresh_paper", json!({"paper_id": "no-such-paper"})).is_err());
 
         // "PIN from" keeps only higher (more recent) PINs.
         let (paper, min) = (x("paper.id"), x("ui.candidates_min_pin"));
@@ -1126,4 +1174,13 @@ mod tests {
         assert!(app.api("plan", json!({"action": "extend", "days": 5, "review_ids": [open]})).is_err());
         let _ = std::fs::remove_dir_all(cfg);
     }
+}
+
+/// What a schedule has done so far (its last check time left out).
+fn fingerprint(s: &scheduler::Schedule) -> Value {
+    let mut v = serde_json::to_value(s).unwrap_or_default();
+    if let Some(o) = v.as_object_mut() {
+        o.remove("last_check");
+    }
+    v
 }

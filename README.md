@@ -111,6 +111,12 @@ open reviews. Right-click a review for: a reminder, the review and its
 attachments, its details, and message, extend or cancel (applied to the whole
 selection if the row is part of it).
 
+*Refresh* under a paper's title (or right-click → *Refresh this paper*) reads
+only that paper's reviewers again from PaperPlaza, without reloading the whole
+list. Docket also does this by itself when the *Find reviewers and invite…*
+window closes, after invitations are sent, and when automatic invitations
+change a paper shown (the list updates within a minute).
+
 ### Messages to reviewers
 
 One message is sent per review, through PaperPlaza's *Contact the reviewer*

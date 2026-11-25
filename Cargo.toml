@@ -1,6 +1,6 @@
 [package]
 name = "docket"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Mac app for associate editors and reviewers on PaperCept journal sites (PaperPlaza, IFAC)"

@@ -206,6 +206,7 @@ let S = {}; let papers = []; let reviews = []; const selected = new Set();
 let mode = ""; let assignments = []; let schedules = [];
 // Automation state for the menus: paused, site notes on, notes waiting for approval.
 let autoStatus = { paused: false, pending: 0, notes_on: false };
+let seenRev = null;
 const prefs = () => (S && S.prefs) || {};
 // Papers shown folded (reviews hidden), remembered with the settings per journal.
 let folded = new Set();
@@ -277,6 +278,7 @@ window.docketEvent = (event, data) => {
   if (event === "reviews") { reviews = data; if (!VIEW) render(); }
   if (event === "schedules") loadSchedules().then(() => { if (!VIEW) render(); });
   if (event === "reload" && !VIEW && S.role) load();
+  if (event === "paper-closed" && !VIEW && mode === "editor") refreshPaper(data, true);
   if (event === "busy-close") { $("busyNoClose").textContent = "Wait until this is finished before closing the window."; $("busyNoClose").classList.remove("hidden"); }
   if (event === "menu") menuCommand(data.action, data.arg);
   if (event === "settings") api("state").then((x) => {
@@ -522,7 +524,8 @@ function render() {
       <td><input type="checkbox" data-paper="${esc(p.id)}" ${allSel ? "checked" : ""} ${rs.length ? "" : "disabled"}></td>
       <td colspan="6">${esc(p.number)} — ${esc(p.title)}${schedChip(p.id)}
       ${shut ? `<span class="meta small"> · ${rs.length} review${rs.length === 1 ? "" : "s"} shown${tally ? ` (${esc(tally)})` : ""}</span>` : ""}<div class="meta small">${esc(p.kind)} · ${esc(p.status)} · decision due ${esc(p.next_due)} · editor ${esc(p.editor)}
-      · <button class="link small" data-auto="${esc(p.id)}">Find reviewers and invite…</button></div></td></tr>`;
+      · <button class="link small" data-auto="${esc(p.id)}">Find reviewers and invite…</button>
+      · ${refreshing.has(p.id) ? `<span class="muted">refreshing…</span>` : `<button class="link small" data-refresh="${esc(p.id)}" title="Read this paper's reviewers again from PaperPlaza">Refresh</button>`}</div></td></tr>`;
     if (shut) continue;
     if (!rs.length) h += `<tr><td></td><td></td><td colspan="6" class="muted small">No reviews match the filter.</td></tr>`;
     // Reviews grouped by round: this paper's versions, newest first, then previous submissions.
@@ -555,6 +558,7 @@ function render() {
   }
   for (const cb of document.querySelectorAll("[data-review]")) cb.onchange = () => { cb.checked ? selected.add(cb.dataset.review) : selected.delete(cb.dataset.review); render(); };
   for (const b of document.querySelectorAll("[data-auto]")) b.onclick = () => pickerWindow(b.dataset.auto);
+  for (const b of document.querySelectorAll("[data-refresh]")) b.onclick = () => refreshPaper(b.dataset.refresh);
   for (const b of document.querySelectorAll("[data-fold]")) b.onclick = () => { folded.has(b.dataset.fold) ? folded.delete(b.dataset.fold) : folded.add(b.dataset.fold); saveFolded(); render(); };
   if ($("foldAll")) $("foldAll").onclick = () => { if (allShut) folded.clear(); else for (const p of papers) folded.add(p.id); saveFolded(); render(); };
   for (const tr of document.querySelectorAll("tr.paper[data-pid]")) tr.oncontextmenu = (e) => paperMenu(e, tr.dataset.pid);
@@ -834,6 +838,7 @@ function paperMenu(e, pid) {
     { label: "Paper details", run: () => paperWindow(pid) },
     { label: `Read the submitted reviews (${all.filter(isDone).length})`, disabled: all.some(isDone) ? "" : "No submitted reviews", run: () => reviewsWindow(all.filter(isDone).sort((a, b) => roundOrder(a) - roundOrder(b)).map((r) => r.review_id)) },
     { label: "Find reviewers and invite…", run: () => pickerWindow(pid) },
+    { label: "Refresh this paper", disabled: refreshing.has(pid) ? "Being read again" : "", run: () => refreshPaper(pid) },
     { label: `Message the senior editor${p && p.editor ? ` (${p.editor.replace(/\s*\(\d+\)\s*$/, "")})` : ""}…`, disabled: viewerNote(), run: () => staffWindow(pid) },
     { label: folded.has(pid) ? "Show its reviews" : "Hide its reviews", run: () => { folded.has(pid) ? folded.delete(pid) : folded.add(pid); saveFolded(); render(); } },
     "-",
@@ -879,7 +884,35 @@ function reviewsWindow(ids) {
 }
 function pickerWindow(pid) {
   const p = papers.find((x) => x.id === pid);
-  popOut("picker", { paper: pid }, `Reviewers and automatic invitations — ${p ? p.number : pid}`, [1440, 960], () => autoForm(pid));
+  // When it closes, the paper's reviewers are read again (invitations sent
+  // there, or on PaperPlaza meanwhile, then show here).
+  popOut("picker", { paper: pid }, `Reviewers and automatic invitations — ${p ? p.number : pid}`, [1440, 960], () => {
+    dlg.addEventListener("close", () => refreshPaper(pid, true), { once: true });
+    return autoForm(pid);
+  });
+}
+// Read one paper's reviewers again from PaperPlaza, without the busy screen
+// ("refreshing…" on the paper's row meanwhile). `auto`: not asked by the
+// user, so a failure is only noted above the table.
+const refreshing = new Set();
+async function refreshPaper(pid, auto) {
+  if (refreshing.has(pid) || !papers.some((p) => p.id === pid)) return;
+  refreshing.add(pid);
+  if (!VIEW) render();
+  try {
+    const j = await api("refresh_paper", { paper_id: pid });
+    reviews = j.reviews;
+    seenRev = j.reviews_rev;
+    for (const id of [...selected]) if (!reviews.some((r) => r.review_id === id)) selected.delete(id);
+    tell("reviews", reviews);
+  } catch (e) {
+    const p = papers.find((x) => x.id === pid);
+    if (!auto) say(e.message);
+    else { $("warnings").innerHTML += `<div>${esc(p ? p.number : pid)}: the reviewers could not be read again (${esc(e.message)}).</div>`; $("warnings").classList.remove("hidden"); }
+  } finally {
+    refreshing.delete(pid);
+    if (!VIEW) { render(); updateBar(); }
+  }
 }
 function staffWindow(pid) {
   const p = papers.find((x) => x.id === pid);
@@ -1071,6 +1104,15 @@ async function loadSchedules() {
 }
 async function loadAutoStatus() {
   try { autoStatus = await api("automation_status"); } catch (e) { /* keep the last one */ }
+  // Reviews read again in the background (automatic invitations): show them.
+  if (seenRev === null) seenRev = autoStatus.reviews_rev;
+  else if (autoStatus.reviews_rev !== undefined && autoStatus.reviews_rev !== seenRev) {
+    seenRev = autoStatus.reviews_rev;
+    if (!VIEW && mode === "editor") {
+      const j = await api("snapshot").catch(() => null);
+      if (j && j.reviews) { reviews = j.reviews; render(); }
+    }
+  }
   $("btnPending").textContent = `Site notes to approve (${autoStatus.pending})`;
   $("btnPending").classList.toggle("hidden", !autoStatus.pending || !!VIEW);
   syncMenus();
@@ -1110,6 +1152,7 @@ function wireCards() {
         : await api("schedule_set", { id, state: b.dataset.sact === "pause" ? "paused" : "active" });
       schedules = j.schedules;
       tell("schedules");
+      if (j.reviews) { reviews = j.reviews; tell("reviews", reviews); if (!VIEW) render(); }
       schedList(j.report);
       render();
       loadSchedules();
@@ -1270,6 +1313,7 @@ async function autoForm(pid) {
         const j = await api("invite", { paper_id: pid, pins: todo.map((b) => b.pin), options: opts }, "Sending the invitations on PaperPlaza (it reads your whole Reviewers list, this can take a minute)…");
         reviews = j.reviews;
         tell("reviews", reviews);
+        if (j.warning) $("dErr").textContent = j.warning;
         onPaper.clear();
         for (const r of reviews.filter((r) => r.paper_id === pid && !r.from_submission && r.version === version)) onPaper.set(r.pin, r.state);
         for (const r of j.results) { const b = queue.find((x) => x.pin === r.pin); if (b && r.ok) b.in_list = true; }
@@ -1286,6 +1330,7 @@ async function autoForm(pid) {
         no_answer_days: $("aNoAns").checked ? num("aDays") : 0, queue: queue.map(({ pin, name }) => ({ pin, name })), options: invOpts() }, "Saving and checking on PaperPlaza…");
       schedules = j.schedules;
       tell("schedules");
+      if (j.reviews) { reviews = j.reviews; tell("reviews", reviews); }
       const s = schedules.find((x) => x.id === j.id);
       openDialog(`Automatic invitations — ${p.number}`, `<div class="note small">${(j.report || []).map(esc).join("<br>")}</div>` + schedCard(s), `<button class="primary" id="dClose">Close</button>`);
       $("dClose").onclick = () => dlg.close();
@@ -1348,7 +1393,7 @@ async function runSchedulesNow() {
     const r = await api("schedule_run", {}, "Sending the invitations on PaperPlaza…");
     schedules = r.schedules;
     tell("schedules");
-    if (S.role && mode === "editor") await load();
+    if (r.reviews && S.role && mode === "editor") { reviews = r.reviews; tell("reviews", reviews); render(); }
     schedList(r.report);
     loadSchedules();
   } catch (e) { say(e.message); }
@@ -1716,7 +1761,11 @@ async function bootView() {
   papers = j.papers || []; reviews = j.reviews || []; assignments = j.assignments || [];
   folded = new Set(j.folded || []);
   await loadSchedules();
-  dlg.addEventListener("close", () => native({ cmd: "close" }));
+  dlg.addEventListener("close", () => {
+    // The main window then reads this paper's reviewers again.
+    if (VIEW === "picker") tell("paper-closed", PARAMS.get("paper"));
+    native({ cmd: "close" });
+  });
   const ids = (PARAMS.get("ids") || "").split(",").filter(Boolean);
   for (const id of ids) selected.add(id);
   const open = {

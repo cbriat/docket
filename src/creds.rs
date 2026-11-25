@@ -373,15 +373,22 @@ pub fn delete_password(_login_id: &str) -> Result<()> {
 }
 
 #[cfg(test)]
+static FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Tests that change the settings folder (DOCKET_CONFIG_DIR) or depend on what
+/// is in it take this, so they do not run at the same time.
+#[cfg(test)]
+pub(crate) fn folder_lock() -> std::sync::MutexGuard<'static, ()> {
+    FOLDER.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Tests that depend on the settings folder, which settings_move_to_another_computer changes.
-    static FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn login_item() {
-        let _guard = FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = folder_lock();
         let exe = std::path::Path::new("/Applications/Docket & Co.app/Contents/MacOS/docket");
         set_open_at_login(true, exe).unwrap();
         assert!(open_at_login());
@@ -413,7 +420,7 @@ mod tests {
 
     #[test]
     fn settings_move_to_another_computer() {
-        let _guard = FOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = folder_lock();
         let dir = std::env::temp_dir().join(format!("docket-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         unsafe { std::env::set_var("DOCKET_CONFIG_DIR", &dir) };
