@@ -113,6 +113,9 @@ struct App {
     /// agreeing, for the review), for the menus; None when not known.
     unthanked: Option<[usize; 2]>,
     last_count: Option<Instant>,
+    /// When the open workspace was entered and not yet loaded by the page:
+    /// the background checks wait for that first load (at most two minutes).
+    entered: Option<Instant>,
 }
 
 /// A downloaded file kept in creds::files_dir().
@@ -161,6 +164,7 @@ impl App {
             site_letters: HashMap::new(),
             unthanked: None,
             last_count: None,
+            entered: None,
         }
     }
 
@@ -169,6 +173,9 @@ impl App {
     /// sending hours (then as soon as they allow it).
     fn tick(&mut self) {
         let Some(site) = self.session.as_ref().filter(|s| s.role.is_some()).map(|s| s.site().to_string()) else { return };
+        if self.entered.is_some_and(|t| t.elapsed() < Duration::from_secs(120)) {
+            return;
+        }
         let auto = creds::load_config().automation;
         // The thank-you notes to send, for the menus (only read, so at any hour).
         if self.last_count.is_some_and(|t| t.elapsed() >= auto.every()) {
@@ -390,6 +397,7 @@ impl App {
                 self.reviews.clear();
                 self.plans.clear();
                 self.unthanked = None;
+                self.entered = Some(Instant::now());
                 Ok(self.state())
             }
             "load" => {
@@ -399,6 +407,7 @@ impl App {
                 if session.role.as_ref().is_some_and(|r| r.kind == RoleKind::Reviewer) {
                     let assignments = session.with_relogin(|s| s.load_assignments(include_all))?;
                     self.unthanked = None;
+                    self.entered = None;
                     self.papers.clear();
                     self.reviews.clear();
                     self.assignments = assignments;
@@ -416,6 +425,7 @@ impl App {
                 self.papers = papers;
                 self.reviews = reviews;
                 self.assignments.clear();
+                self.entered = None;
                 self.count_unthanked();
                 let folded = creds::load_config().folded.get(&self.fold_key()).cloned().unwrap_or_default();
                 Ok(json!({"mode": "editor", "papers": self.papers, "reviews": self.reviews, "warnings": warnings, "folded": folded, "unthanked": self.unthanked}))

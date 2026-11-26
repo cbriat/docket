@@ -93,6 +93,8 @@ pub(crate) fn serve(dir: String) -> (String, Arc<Mutex<Vec<Seen>>>) {
                     if text.contains("ShowAll=ON") { "Reviewer's Workspace 2.html" } else { "Reviewer's Workspace.html" }
                 }
                 (_, "Access_597_4" | "Workspace") => "Workspace.html",
+                // The workspace form sent back (its settings changed).
+                (p, "") if p.ends_with("/workspace.pl") => "Workspace.html",
                 (_, "Reviews") => "Manage Reviews.html",
                 (_, "ContactReviewer") => "Contact the Reviewer.html",
                 (_, "Contact") => "Contact One or Several Editorial Staff Members.html",
@@ -799,5 +801,68 @@ fn site_notes() {
         let report = crate::notes::send_by_hand(&mut s, Kind::Remind, &other, Some(letter.into()), false, false).unwrap();
         assert!(report.iter().any(|l| l.contains("not sent") && l.contains("reading the review for the letter")), "{report:#?}");
         assert_eq!(sends("SendReminders").len(), before + ids.len());
+    }
+}
+
+/// The workspace's settings kept by the site ("Show tagged submissions only",
+/// a search, another page) are reset before the papers are read.
+#[test]
+#[ignore]
+fn workspace_settings_are_reset() {
+    let Ok(dir) = std::env::var("DOCKET_CAPTURES") else { return };
+    let tmp = std::env::temp_dir().join(format!("docket-sticky-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    for e in std::fs::read_dir(&dir).unwrap().flatten() {
+        if e.file_name() != "Workspace.html" {
+            std::os::unix::fs::symlink(e.path(), tmp.join(e.file_name())).unwrap();
+        }
+    }
+    let html = encoding_rs::WINDOWS_1252.decode(&std::fs::read(format!("{dir}/Workspace.html")).unwrap()).0.into_owned();
+    let sticky = html
+        .replace(r#"name="ShowTaggedOnly" value="ON""#, r#"name="ShowTaggedOnly" value="ON" checked"#)
+        .replace(r#"name="SearchFor" value="""#, r#"name="SearchFor" value="Doe""#)
+        .replace(r#"name="Page" value="1""#, r#"name="Page" value="2""#);
+    assert!(sticky.contains("ShowTaggedOnly\" value=\"ON\" checked") && sticky.contains("value=\"Doe\"") && sticky.contains("name=\"Page\" value=\"2\""));
+    std::fs::write(tmp.join("Workspace.html"), encoding_rs::WINDOWS_1252.encode(&sticky).0).unwrap();
+    let (base, seen) = serve(tmp.to_string_lossy().into_owned());
+    let mut s = editor(&base, false);
+    let papers = s.load_papers(false).unwrap();
+    assert_eq!(papers.len(), xn("papers"));
+    let resets: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|q| q.path.ends_with("/workspace.pl"))
+        .map(|q| String::from_utf8_lossy(&q.body).into_owned())
+        .filter(|b| !b.split('&').any(|kv| kv.starts_with("Command=")))
+        .collect();
+    assert_eq!(resets.len(), 1, "one submit resets the settings");
+    let kv: Vec<&str> = resets[0].split('&').collect();
+    assert!(kv.contains(&"SearchFor=") && kv.contains(&"Page=1"), "{}", resets[0]);
+    assert!(!kv.iter().any(|x| x.starts_with("ShowTaggedOnly=") || x.starts_with("ShowAll=")), "{}", resets[0]);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// A mark the site may put after a reviewer's PIN ("Doe, Jane (12345)§") is
+/// not part of the name, and the PIN is still read.
+#[test]
+#[ignore]
+fn marks_after_the_pin() {
+    let Ok(dir) = std::env::var("DOCKET_CAPTURES") else { return };
+    let html = encoding_rs::WINDOWS_1252.decode(&std::fs::read(format!("{dir}/Manage Reviews.html")).unwrap()).0.into_owned();
+    let url = "https://css.paperplaza.net/journals/tac/scripts/workspace.pl";
+    let (id, cmd) = (x("paper.id"), x("paper.reviews_cmd"));
+    let plain = crate::papercept::parse_reviews(&crate::page::Page::parse(url, html.clone()), &id, "", &cmd);
+    assert!(!plain.is_empty() && plain.iter().all(|r| !r.pin.is_empty()));
+    let mut marked = html;
+    for r in &plain {
+        marked = marked.replace(&format!("({})", r.pin), &format!("({})§", r.pin));
+    }
+    let again = crate::papercept::parse_reviews(&crate::page::Page::parse(url, marked), &id, "", &cmd);
+    assert_eq!(again.len(), plain.len());
+    for (a, b) in again.iter().zip(&plain) {
+        assert_eq!((&a.reviewer, &a.pin, &a.first_name, &a.last_name), (&b.reviewer, &b.pin, &b.first_name, &b.last_name));
+        assert!(!a.reviewer.contains('§') && !a.first_name.contains('('));
     }
 }

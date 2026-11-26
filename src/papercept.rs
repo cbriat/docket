@@ -30,7 +30,7 @@ static JOURNAL_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"/journals/([A-Za-z0-9_-]+)/scripts/login\.pl\?PIN=").unwrap());
 static ROLE_CMD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^Access_\d+_\d+$").unwrap());
 static PAGE_OF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Page (\d+) of (\d+)").unwrap());
-static NAME_PIN_VALUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(.*?)\s*\((\d+)\)\s*$").unwrap());
+static NAME_PIN_VALUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(.*?)\s*\((\d+)\)[^\p{L}\p{N}()]*$").unwrap());
 static DATE_IN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Z][a-z]+ \d{1,2}, \d{4}").unwrap());
 static ID_IN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(ID ([^)]+)\)").unwrap());
 
@@ -339,20 +339,37 @@ impl Session {
 
     pub fn load_papers(&mut self, include_all: bool) -> Result<Vec<Paper>> {
         self.goto_workspace()?;
-        if include_all {
-            let page = self.page.as_ref().ok_or_else(|| anyhow!("not logged in"))?;
-            let mut form = page.form().context("workspace has no form")?.clone();
-            if form.set_checked("ShowAll", true) {
-                if let Some(c) = form.controls.iter_mut().find(|c| c.name == "Order_by") {
-                    for (i, o) in c.options.iter_mut().enumerate() {
-                        o.selected = i == 0;
-                    }
+        // The site keeps the workspace's settings for the session or the user
+        // ("Show all", "Show tagged submissions only", the search, the page
+        // last shown), also when changed on the website or by an automatic
+        // check, so they are set here before reading, or papers would be missing.
+        let page = self.page.as_ref().ok_or_else(|| anyhow!("not logged in"))?;
+        let mut form = page.form().context("workspace has no form")?.clone();
+        let on = |f: &crate::page::Form, n: &str| f.get(n).is_some_and(|c| c.checked);
+        let wrong = (form.get("ShowAll").is_some() && on(&form, "ShowAll") != include_all)
+            || on(&form, "ShowTaggedOnly")
+            || form.value("SearchFor").is_some_and(|v| !v.trim().is_empty())
+            || form.value("Page").is_some_and(|v| v.trim() != "1");
+        if wrong {
+            form.set_checked("ShowAll", include_all);
+            form.set_checked("ShowTaggedOnly", false);
+            form.set("SearchFor", "");
+            form.set("Page", "1");
+            if let Some(c) = form.controls.iter_mut().find(|c| c.name == "Order_by").filter(|_| include_all) {
+                for (i, o) in c.options.iter_mut().enumerate() {
+                    o.selected = i == 0;
                 }
-                let next = self.http.submit(page, &form, None)?;
-                if next.is_login_form() {
-                    return Err(SessionExpired.into());
-                }
-                self.page = Some(next);
+            }
+            let next = self.http.submit(page, &form, None)?;
+            if next.is_login_form() {
+                return Err(SessionExpired.into());
+            }
+            self.page = Some(next);
+        }
+        if page_of(self.current()?).is_some_and(|(cur, _)| cur > 1) {
+            self.cmd("First")?;
+            if let Some((cur, _)) = page_of(self.current()?).filter(|(cur, _)| *cur > 1) {
+                bail!("the workspace stays on page {cur} instead of the first one");
             }
         }
         let mut papers = parse_workspace(self.current()?);
@@ -363,8 +380,14 @@ impl Session {
             }
             guard += 1;
             self.cmd("Next")?;
+            if page_of(self.current()?).is_some_and(|(next, _)| next <= cur) {
+                break;
+            }
             papers.extend(parse_workspace(self.current()?));
         }
+        // A paper listed twice (e.g. on two pages while the list changed) counts once.
+        let mut seen = std::collections::HashSet::new();
+        papers.retain(|p| seen.insert(p.id.clone()));
         Ok(papers)
     }
 

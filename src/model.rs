@@ -291,7 +291,8 @@ pub struct Review {
     pub from_submission: String,
 }
 
-static NAME_PIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(.*?)\s*\((\d+)\)\s*$").unwrap());
+/// "Name (PIN)", possibly followed by marks the site adds (e.g. "§").
+static NAME_PIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(.*?)\s*\((\d+)\)[^\p{L}\p{N}()]*$").unwrap());
 static STATE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*([A-Za-z][A-Za-z ]*?)\s+on\s+([A-Z][a-z]+ \d{1,2}, \d{4})(\**)(TH)?").unwrap());
 static DUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Due on ([A-Z][a-z]+ \d{1,2}, \d{4})").unwrap());
@@ -393,6 +394,11 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(split_name_pin("Doe, Jane (12345)"), ("Doe, Jane".into(), "12345".into()));
+        // Marks the site puts after the PIN are not part of the name.
+        assert_eq!(split_name_pin("Doe, Jane C. (12345)§"), ("Doe, Jane C.".into(), "12345".into()));
+        assert_eq!(split_name_pin("Doe, Jane (12345) § *"), ("Doe, Jane".into(), "12345".into()));
+        assert_eq!(split_first_last(&split_name_pin("Åberg, Jane (12345)§").0), ("Jane".into(), "Åberg".into()));
+        assert_eq!(split_name_pin("Doe, Jane (12345) (Chair)"), ("Doe, Jane (12345) (Chair)".into(), String::new()), "words after the PIN are kept");
         assert_eq!(split_first_last("Smith, Ann B."), ("Ann B.".into(), "Smith".into()));
         let groups: Vec<&str> = ["Prof.", "Dr.", "DR", "Dr..", "Mr.", "Herr.", "Ms.", "Miss", "Mrs.", "Dipl.", ""].iter().map(|t| title_group(t)).collect();
         assert_eq!(groups, ["prof", "dr", "dr", "dr", "mr", "mr", "ms", "ms", "mrs", "other", "none"]);
