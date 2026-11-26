@@ -217,7 +217,8 @@ Settings → Automation sends PaperPlaza's own notes, from its *Reminders and
 thanks* pages and with the site's letters, so the site records them as if
 you had sent them there. No personal message is sent. Turn them on for each
 journal where you are Associate Editor (*Send site notes for my papers in
-…*), then choose:
+…*; turning a note on ticks it for the journal you are in, and the settings
+warn when notes are on for no journal), then choose:
 
 - **Thank-you notes** for agreeing to review and for submitting a review.
   Only acceptances and reviews dated from the day a note is turned on are
@@ -236,6 +237,30 @@ the site count toward the limits. After sending, Docket reads the site's list
 again; a note it cannot confirm is shown as such and counts as sent, so it is
 never repeated sooner. Everything sent is in Settings → Activity. In viewer
 mode the checks only list what would be sent.
+
+**Letters.** By default each note uses PaperPlaza's own letter, in which the
+site writes each reviewer's title and name and adds the paper's details below.
+For each kind you can choose one of your message templates instead (Settings →
+Automation → *Letter*). Its reviewer-name placeholders become the site's. With
+placeholders of the paper or the review (such as `%title` or `%deadline`),
+Docket reads each review first and sends it on its own.
+
+**Sending by hand.** The menu-bar icon and the Reviews menu have *Send
+Thank-You Notes for Accepted Reviews…* and *…for Submitted Reviews…*, with
+the number of notes on PaperPlaza's list (greyed out when there are none; the
+list is read when the papers load, after sending, and at each check interval).
+The Reviews menu also has PaperPlaza reminders and confirmation requests.
+Right-click reviews for *PaperPlaza reminder…*, *PaperPlaza confirmation
+request…* or *PaperPlaza thanks…*; the message window has the same links. Each
+opens the site's list with its letter. Tick the reviews, keep PaperPlaza's
+letter or pick or edit another, and send. This also works for acceptances and
+reviews from before the automatic thanks were turned on. These notes are
+recorded like the automatic ones.
+
+**PaperPlaza's letters as templates.** In the message window, the template
+menu also lists PaperPlaza's letters of the open journal (thanks, confirmation
+request, reminder). They are read from the site once and converted to Docket's
+placeholders, with the paper's details added at the end.
 
 ### Settings
 
@@ -281,7 +306,7 @@ the editor, or to copy the paper number. This view is read-only.
 
 ### Menu bar, Dock and menus (app)
 
-- **Menu-bar icon** (a clipboard with ticks, at the top right of the
+- **Menu-bar icon** (a “D” page with a folded corner, at the top right of the
   screen). Click it for a summary (overdue reviews, unanswered invitations,
   active automatic invitations, site notes and those waiting for approval)
   and the everyday commands: Open Docket, Send Pending Site Notes…, Run

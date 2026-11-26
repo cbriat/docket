@@ -9,6 +9,7 @@ mod recommend;
 mod scheduler;
 mod templates;
 mod notes;
+mod letters;
 mod activity;
 #[cfg(test)]
 mod replay_test;

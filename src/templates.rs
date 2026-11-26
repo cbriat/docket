@@ -71,7 +71,7 @@ const OLD_FIELDS: &[(&str, &str)] = &[
     ("{due}", "%deadline"),
 ];
 
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%[a-z]+").unwrap());
+pub(crate) static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%[a-z]+").unwrap());
 
 fn path() -> std::path::PathBuf {
     creds::config_dir().join("templates.json")

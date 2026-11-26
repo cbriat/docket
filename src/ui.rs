@@ -8,7 +8,7 @@ use crate::model::{Assignment, Candidate, InviteOptions, Paper, PaperInfo, Revie
 use crate::papercept::{ContactOptions, EXTENSIONS, SITES, Session, same_id};
 use crate::scheduler::{self, State, Store};
 use crate::templates::{self, Templates};
-use crate::notes::{Notes, Repeat, ThanksSettings};
+use crate::notes::{Kind, Notes, Repeat, ThanksSettings};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use serde::Deserialize;
@@ -107,6 +107,12 @@ struct App {
     /// Raised whenever reviews are re-read without the page asking (automatic
     /// invitations), so the page knows to fetch them again.
     reviews_rev: u64,
+    /// PaperPlaza's letters as message templates, per "site|journal".
+    site_letters: HashMap<String, Vec<crate::templates::Template>>,
+    /// Thank-you notes the site's list offers in the open journal (for
+    /// agreeing, for the review), for the menus; None when not known.
+    unthanked: Option<[usize; 2]>,
+    last_count: Option<Instant>,
 }
 
 /// A downloaded file kept in creds::files_dir().
@@ -152,6 +158,9 @@ impl App {
             assignments: Vec::new(),
             files: Vec::new(),
             reviews_rev: 0,
+            site_letters: HashMap::new(),
+            unthanked: None,
+            last_count: None,
         }
     }
 
@@ -161,6 +170,10 @@ impl App {
     fn tick(&mut self) {
         let Some(site) = self.session.as_ref().filter(|s| s.role.is_some()).map(|s| s.site().to_string()) else { return };
         let auto = creds::load_config().automation;
+        // The thank-you notes to send, for the menus (only read, so at any hour).
+        if self.last_count.is_some_and(|t| t.elapsed() >= auto.every()) {
+            self.count_unthanked();
+        }
         let due = self.last_check.is_none_or(|t| t.elapsed() >= auto.every());
         if !due || auto.may_send(chrono::Local::now().naive_local()).is_err() {
             return;
@@ -174,6 +187,17 @@ impl App {
         }
         if notes {
             let _ = self.run_notes(None);
+        }
+    }
+
+    /// Read the site's thank-you list of the open journal (Associate Editor
+    /// role) for the menus' counts.
+    fn count_unthanked(&mut self) {
+        self.last_count = Some(Instant::now());
+        self.unthanked = None;
+        let Some(session) = self.session.as_mut().filter(|s| s.role.as_ref().is_some_and(|r| r.kind == RoleKind::Editor)) else { return };
+        if let Ok(list) = session.with_relogin(|x| x.unthanked()) {
+            self.unthanked = Some(crate::notes::thanks_counts(&list));
         }
     }
 
@@ -222,6 +246,7 @@ impl App {
         let mut n = Notes::load();
         let report = crate::notes::run(session, &mut n, approved);
         session.restore(journal, role)?;
+        self.count_unthanked();
         Ok(report)
     }
 
@@ -231,7 +256,7 @@ impl App {
         let journal = self.session.as_ref().and_then(|s| s.journal.as_ref());
         let here = journal.and_then(|j| n.place(&site, &j.code)).is_some();
         json!({"thanks": n.thanks, "confirm": n.confirm, "remind": n.remind, "journals": n.journals, "here": here,
-               "on_here": n.is_on(&site), "pending": n.pending})
+               "on_here": n.is_on(&site), "pending": n.pending, "no_journal": n.any_on() && n.journals.is_empty()})
     }
 
     /// Everything the settings window shows.
@@ -336,6 +361,8 @@ impl App {
                 self.papers.clear();
                 self.reviews.clear();
                 self.last_check = None;
+                self.unthanked = None;
+                self.last_count = None;
                 self.cands.clear();
                 self.dates.clear();
                 Ok(self.state())
@@ -348,6 +375,7 @@ impl App {
                 creds::save_config(&cfg)?;
                 self.papers.clear();
                 self.reviews.clear();
+                self.unthanked = None;
                 Ok(self.state())
             }
             "role" => {
@@ -361,6 +389,7 @@ impl App {
                 self.papers.clear();
                 self.reviews.clear();
                 self.plans.clear();
+                self.unthanked = None;
                 Ok(self.state())
             }
             "load" => {
@@ -369,6 +398,7 @@ impl App {
                 let session = self.session.as_mut().context("not logged in")?;
                 if session.role.as_ref().is_some_and(|r| r.kind == RoleKind::Reviewer) {
                     let assignments = session.with_relogin(|s| s.load_assignments(include_all))?;
+                    self.unthanked = None;
                     self.papers.clear();
                     self.reviews.clear();
                     self.assignments = assignments;
@@ -386,8 +416,9 @@ impl App {
                 self.papers = papers;
                 self.reviews = reviews;
                 self.assignments.clear();
+                self.count_unthanked();
                 let folded = creds::load_config().folded.get(&self.fold_key()).cloned().unwrap_or_default();
-                Ok(json!({"mode": "editor", "papers": self.papers, "reviews": self.reviews, "warnings": warnings, "folded": folded}))
+                Ok(json!({"mode": "editor", "papers": self.papers, "reviews": self.reviews, "warnings": warnings, "folded": folded, "unthanked": self.unthanked}))
             }
             "plan" => {
                 if self.session.as_ref().is_some_and(Session::viewer) {
@@ -706,6 +737,16 @@ impl App {
                 let site = self.session.as_ref().map(|x| x.site().to_string()).unwrap_or_default();
                 let journal = self.session.as_ref().and_then(|x| x.journal.clone());
                 let here = input.get("here").and_then(Value::as_bool);
+                // A template chosen instead of the site's letter must exist and suit the site's pages.
+                let all = crate::templates::Templates::load();
+                for (what, name) in [("thanks for agreeing to review", &thanks.accept_letter), ("thanks for the review", &thanks.review_letter),
+                                     ("confirmation requests", &confirm.letter), ("reminders", &remind.letter)] {
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let t = all.list.iter().find(|t| &t.name == name).with_context(|| format!("the template “{name}” does not exist"))?;
+                    crate::letters::check(&t.body).with_context(|| format!("letter for the {what} (“{name}”)"))?;
+                }
                 let mut n = Notes::load();
                 let place = match (&journal, here) {
                     (Some(j), Some(on)) => Some((site.as_str(), j.code.as_str(), j.name.as_str(), on)),
@@ -737,11 +778,77 @@ impl App {
                 v["report"] = json!(report);
                 Ok(v)
             }
+            "site_offer" => {
+                // What PaperPlaza's own page offers for one kind of note, in the open journal.
+                let kind: Kind = serde_json::from_value(input.get("kind").cloned().unwrap_or(json!("accept")))?;
+                let session = self.session.as_mut().context("not logged in")?;
+                if session.role.as_ref().is_none_or(|r| r.kind != RoleKind::Editor) {
+                    bail!("open the Associate Editor role of a journal first");
+                }
+                let (rows, letter) = crate::notes::offered(session, kind)?;
+                let n = Notes::load();
+                let all = crate::templates::Templates::load();
+                let usable: Vec<Value> = all.list.iter().map(|t| json!({"name": t.name, "body": t.body, "problem": crate::letters::check(&t.body).err().map(|e| format!("{e:#}"))})).collect();
+                let (copy, attach) = match kind {
+                    Kind::Accept | Kind::Review => (n.thanks.copy_me, false),
+                    Kind::Confirm => (n.confirm.copy_me, n.confirm.attach),
+                    Kind::Remind => (n.remind.copy_me, n.remind.attach),
+                };
+                let rows: Vec<Value> = rows.iter().map(|d| json!({"review_id": d.review_id, "paper": d.paper, "reviewer": d.reviewer, "why": d.why})).collect();
+                Ok(json!({"kind": kind, "what": kind.what(), "rows": rows, "letter": letter, "templates": usable, "chosen": n.letter_name(kind),
+                          "copy_me": copy, "attach": attach, "journal": session.journal.as_ref().map(|j| j.name.clone()), "viewer": session.viewer()}))
+            }
+            "site_send" => {
+                let kind: Kind = serde_json::from_value(input.get("kind").cloned().unwrap_or(json!(null)))?;
+                let ids: Vec<String> = serde_json::from_value(input.get("ids").cloned().unwrap_or(json!([])))?;
+                if ids.is_empty() {
+                    bail!("select at least one review");
+                }
+                let letter = input.get("letter").and_then(Value::as_str).map(String::from);
+                let copy = input.get("copy_me").and_then(Value::as_bool).unwrap_or(false);
+                let attach = input.get("attach").and_then(Value::as_bool).unwrap_or(false);
+                let session = self.session.as_mut().context("not logged in")?;
+                if session.role.as_ref().is_none_or(|r| r.kind != RoleKind::Editor) {
+                    bail!("open the Associate Editor role of a journal first");
+                }
+                let report = crate::notes::send_by_hand(session, kind, &ids, letter, copy, attach)?;
+                if matches!(kind, Kind::Accept | Kind::Review) {
+                    self.count_unthanked();
+                }
+                // The reviews' reminders and thanks shown in the table.
+                let mut papers: Vec<String> = self.reviews.iter().filter(|r| ids.contains(&r.review_id)).map(|r| r.paper_id.clone()).collect();
+                papers.dedup();
+                for p in papers {
+                    let _ = self.refresh_paper(&p);
+                }
+                Ok(json!({"report": report, "reviews": self.reviews, "reviews_rev": self.reviews_rev, "unthanked": self.unthanked}))
+            }
+            "site_letters" => {
+                // PaperPlaza's letters of the open journal, as message templates (read once).
+                let session = self.session.as_mut().context("not logged in")?;
+                if session.role.as_ref().is_none_or(|r| r.kind != RoleKind::Editor) {
+                    return Ok(json!({"templates": []}));
+                }
+                let k = format!("{}|{}", session.site(), session.journal.as_ref().map(|j| j.code.as_str()).unwrap_or_default());
+                if !self.site_letters.contains_key(&k) {
+                    let (_, accept, review) = session.with_relogin(|x| x.thank_you_page())?;
+                    let (_, remind) = session.with_relogin(|x| x.site_list_page(crate::papercept::SiteList::Reminders))?;
+                    let (_, confirm) = session.with_relogin(|x| x.site_list_page(crate::papercept::SiteList::Confirmations))?;
+                    let list = [("accept", accept), ("review", review), ("confirm", confirm), ("remind", remind)]
+                        .into_iter()
+                        .filter(|(_, l)| !l.trim().is_empty())
+                        .map(|(kind, l)| crate::letters::from_site(kind, &l))
+                        .collect();
+                    self.site_letters.insert(k.clone(), list);
+                }
+                Ok(json!({"templates": self.site_letters[&k]}))
+            }
             "automation_status" => {
                 let cfg = creds::load_config();
                 let site = self.session.as_ref().map(|x| x.site().to_string()).unwrap_or_default();
                 let n = Notes::load();
                 Ok(json!({"paused": cfg.automation.paused, "pending": n.pending.iter().filter(|p| p.site == site).count(), "notes_on": n.is_on(&site),
+                          "notes_no_journal": n.any_on() && n.journals.is_empty(), "unthanked": self.unthanked,
                           "reviews_rev": self.reviews_rev}))
             }
             "activity" => {
@@ -1100,6 +1207,12 @@ mod tests {
         // The replay only has the reviews pages of two papers; the others must be reported, not abort the load.
         assert_eq!(loaded["reviews"].as_array().unwrap().len(), xn("ui.reviews"));
         assert_eq!(loaded["warnings"].as_array().unwrap().len(), xn("ui.warnings"), "{}", loaded["warnings"]);
+        // The thank-you notes on the site's list, counted for the menus.
+        let counts = loaded["unthanked"].as_array().map(|a| a.iter().map(|n| n.as_u64().unwrap()).collect::<Vec<_>>()).unwrap();
+        assert!(counts[0] >= 1, "{counts:?}");
+        assert_eq!(app.api("automation_status", json!({})).unwrap()["unthanked"], loaded["unthanked"]);
+        let offer = app.api("site_offer", json!({"kind": "review"})).unwrap();
+        assert_eq!(offer["rows"].as_array().unwrap().len() as u64, counts[1]);
 
         // Refreshing one paper re-reads only its reviews and keeps the others.
         let of = |j: &Value, pid: &str| j["reviews"].as_array().unwrap().iter().filter(|r| r["paper_id"] == pid).count();
@@ -1112,6 +1225,24 @@ mod tests {
         assert_eq!(app.api("automation_status", json!({})).unwrap()["reviews_rev"], 1);
         assert!(seen.lock().unwrap().len() > before, "read from the site");
         assert!(app.api("refresh_paper", json!({"paper_id": "no-such-paper"})).is_err());
+
+        // PaperPlaza's letters as message templates, with Docket's placeholders.
+        let letters = app.api("site_letters", json!({})).unwrap();
+        let names: Vec<&str> = letters["templates"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["PaperPlaza: thanks for agreeing to review", "PaperPlaza: thanks for the review", "PaperPlaza: confirmation request", "PaperPlaza: review reminder"]);
+        for t in letters["templates"].as_array().unwrap() {
+            let body = t["body"].as_str().unwrap();
+            assert!(body.starts_with("Dear %reviewername,") && !body.contains("%YOUR_") && !body.contains('\r'), "{body}");
+            crate::templates::check(body).unwrap();
+        }
+        // What the site's thank-you page offers, with its letter.
+        let offer = app.api("site_offer", json!({"kind": "accept"})).unwrap();
+        assert!(offer["rows"].as_array().unwrap().iter().any(|r| r["review_id"] == x("thanks.review_id")));
+        assert!(offer["letter"].as_str().unwrap().starts_with("Dear %YOUR_TITLE%"));
+        // A template chosen as a letter must exist.
+        crate::templates::Templates::defaults().save().unwrap();
+        app.api("notes_save", json!({"thanks": {"accept": {"on": true}, "accept_letter": "Thank you for your review"}})).unwrap();
+        assert!(app.api("notes_save", json!({"thanks": {"accept": {"on": true}, "accept_letter": "No such template"}})).is_err());
 
         // "PIN from" keeps only higher (more recent) PINs.
         let (paper, min) = (x("paper.id"), x("ui.candidates_min_pin"));

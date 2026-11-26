@@ -16,10 +16,14 @@
 
 use crate::activity;
 use crate::creds;
+use crate::letters;
+use crate::model::Paper;
+use crate::templates;
+use crate::templates::Templates;
 use crate::model::{SiteItem, Unthanked};
 use crate::papercept::{Session, SiteList};
 use crate::scheduler::{Notice, notify};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -74,6 +78,9 @@ pub struct ThanksSettings {
     pub copy_me: bool,
     /// Hold the notes until approved.
     pub ask: bool,
+    /// The template sent instead of the site's letter ("": the site's).
+    pub accept_letter: String,
+    pub review_letter: String,
 }
 
 /// Confirmation requests or overdue reminders.
@@ -90,11 +97,13 @@ pub struct Repeat {
     /// The site's "Attach the submission".
     pub attach: bool,
     pub ask: bool,
+    /// The template sent instead of the site's letter ("": the site's).
+    pub letter: String,
 }
 
 impl Default for Repeat {
     fn default() -> Self {
-        Repeat { on: false, after_days: 7, max: 2, copy_me: false, attach: false, ask: true }
+        Repeat { on: false, after_days: 7, max: 2, copy_me: false, attach: false, ask: true, letter: String::new() }
     }
 }
 
@@ -193,7 +202,7 @@ impl Notes {
         Ok(())
     }
 
-    fn any_on(&self) -> bool {
+    pub fn any_on(&self) -> bool {
         self.thanks.accept.on || self.thanks.review.on || self.confirm.on || self.remind.on
     }
 
@@ -217,6 +226,8 @@ impl Notes {
         }
         self.thanks.copy_me = thanks.copy_me;
         self.thanks.ask = thanks.ask;
+        self.thanks.accept_letter = thanks.accept_letter;
+        self.thanks.review_letter = thanks.review_letter;
         let clamp = |mut r: Repeat| {
             r.after_days = r.after_days.clamp(1, 90);
             r.max = r.max.clamp(1, 10);
@@ -260,6 +271,28 @@ impl Notes {
             Kind::Accept | Kind::Review => self.thanks.ask,
             Kind::Confirm => self.confirm.ask,
             Kind::Remind => self.remind.ask,
+        }
+    }
+
+    /// The template chosen instead of the site's letter for `kind`, if any.
+    pub fn letter_name(&self, kind: Kind) -> &str {
+        match kind {
+            Kind::Accept => &self.thanks.accept_letter,
+            Kind::Review => &self.thanks.review_letter,
+            Kind::Confirm => &self.confirm.letter,
+            Kind::Remind => &self.remind.letter,
+        }
+    }
+
+    /// The text of that template (None: the site's letter).
+    fn letter(&self, kind: Kind) -> Result<Option<String>> {
+        let name = self.letter_name(kind);
+        if name.is_empty() {
+            return Ok(None);
+        }
+        match Templates::load().list.into_iter().find(|t| t.name == name) {
+            Some(t) => Ok(Some(t.body)),
+            None => anyhow::bail!("the template “{name}” chosen for the {}s no longer exists (Settings → Automation)", kind.what()),
         }
     }
 
@@ -382,7 +415,13 @@ pub fn run(session: &mut Session, n: &mut Notes, approved: Option<&[String]>) ->
                     let due = n.due_thanks(&place, &list);
                     let send = pick(n, due, approved, &mut held);
                     if !send.is_empty() {
-                        send_thanks(session, n, &site, &journal, &send, &mut report);
+                        match (n.letter(Kind::Accept), n.letter(Kind::Review)) {
+                            (Ok(a), Ok(r)) => {
+                                let copy = n.thanks.copy_me;
+                                send_thanks(session, n, &site, &journal, &send, [a, r], copy, &mut report);
+                            }
+                            (Err(e), _) | (_, Err(e)) => report.push(format!("{journal}: thank-you notes not sent: {e:#}")),
+                        }
                     }
                 }
             }
@@ -398,7 +437,12 @@ pub fn run(session: &mut Session, n: &mut Notes, approved: Option<&[String]>) ->
                     let due = n.due_repeat(&place, kind, &list, today);
                     let send = pick(n, due, approved, &mut held);
                     if !send.is_empty() {
-                        send_repeat(session, n, &site, &journal, which, &list, &send, &mut report);
+                        let r = if kind == Kind::Confirm { &n.confirm } else { &n.remind };
+                        let (copy, attach) = (r.copy_me, r.attach);
+                        match n.letter(kind) {
+                            Ok(letter) => send_repeat(session, n, &site, &journal, which, &list, &send, letter, copy, attach, &mut report),
+                            Err(e) => report.push(format!("{journal}: {}s not sent: {e:#}", kind.what())),
+                        }
                     }
                 }
             }
@@ -450,50 +494,209 @@ fn pick(n: &Notes, due: Vec<Due>, approved: Option<&[String]>, held: &mut Vec<Du
     send
 }
 
-fn send_thanks(session: &mut Session, n: &mut Notes, site: &str, journal: &str, send: &[Due], report: &mut Vec<String>) {
+/// Sent together in one submission, unless a letter differs from one review
+/// to the other.
+fn groups(send: &[Due], letters: &[Option<String>]) -> Vec<Vec<Due>> {
+    if letters.iter().flatten().any(|l| letters::per_review(l)) {
+        send.iter().map(|d| vec![d.clone()]).collect()
+    } else {
+        vec![send.to_vec()]
+    }
+}
+
+/// The papers of the workspace, read once per run when a letter needs a
+/// review's values.
+#[derive(Default)]
+struct Lookup {
+    papers: Option<Vec<Paper>>,
+}
+
+/// The values of the placeholders for the review of `d` (its paper's Manage
+/// Reviews page, and Review Details if the letter uses its dates).
+fn review_values(session: &mut Session, look: &mut Lookup, d: &Due, journal: &str, letter: &str) -> Result<HashMap<&'static str, String>> {
+    let base = d.paper.split('.').next().unwrap_or_default().to_string();
+    let matches = |p: &Paper| p.number == d.paper || p.number.split('.').next() == Some(base.as_str()) || crate::papercept::same_id(&p.id, &base);
+    for all in [false, true] {
+        if look.papers.as_ref().is_some_and(|ps| ps.iter().any(matches)) {
+            break;
+        }
+        look.papers = Some(session.with_relogin(|x| x.load_papers(all))?);
+    }
+    let paper = look.papers.as_ref().and_then(|ps| ps.iter().find(|p| matches(p))).cloned().with_context(|| format!("{} is not in your workspace", d.paper))?;
+    let r = session.with_relogin(|x| x.load_reviews(&paper))?.into_iter().find(|r| r.review_id == d.review_id).with_context(|| format!("review {} is not listed for {}", d.review_id, d.paper))?;
+    let dates = if templates::needs_details(letter) { Some(session.with_relogin(|x| x.review_dates(&r))?) } else { None };
+    Ok(templates::values(&r, Some(&paper), journal, dates.as_ref(), &Templates::load().signature, Local::now().date_naive()))
+}
+
+/// `letter` for the site's form: filled for the one review of `group` when
+/// it differs per review.
+fn site_letter(session: &mut Session, look: &mut Lookup, letter: &Option<String>, journal: &str, group: &[Due]) -> Result<Option<String>> {
+    let Some(t) = letter else { return Ok(None) };
+    let values = if letters::per_review(t) { Some(review_values(session, look, &group[0], journal, t).context("reading the review for the letter")?) } else { None };
+    Ok(Some(letters::to_site(t, journal, &Templates::load().signature, Local::now().date_naive(), values)))
+}
+
+/// `letters`: templates replacing the site's letters for agreeing to review
+/// and for the review (None: the site's).
+#[allow(clippy::too_many_arguments)]
+fn send_thanks(session: &mut Session, n: &mut Notes, site: &str, journal: &str, send: &[Due], letters: [Option<String>; 2], copy: bool, report: &mut Vec<String>) {
     if session.viewer() {
         report.extend(send.iter().map(|d| format!("{}: viewer mode — would send a {} to {}", d.paper, d.kind.what(), d.reviewer)));
         return;
     }
-    let boxes: Vec<String> = send.iter().map(|d| d.field.clone()).collect();
-    let copy = n.thanks.copy_me;
-    match session.with_relogin(|x| x.send_thank_you_notes(&boxes, copy)) {
-        // Nothing was sent: tried again at the next check.
-        Err(e) => report.push(format!("{journal}: thank-you notes not sent ({e:#})")),
-        Ok(after) => {
-            let still = |d: &Due| {
-                after.remaining.as_ref().map(|l| l.iter().any(|u| u.accept_box.as_deref() == Some(d.field.as_str()) || u.review_box.as_deref() == Some(d.field.as_str())))
-            };
-            let results: Vec<(Due, Option<bool>)> = send.iter().map(|d| (d.clone(), still(d))).collect();
-            finish(n, site, journal, results, after.problem, "the site still lists it as not thanked", report);
+    let mut look = Lookup::default();
+    for group in groups(send, &letters) {
+        let boxes: Vec<String> = group.iter().map(|d| d.field.clone()).collect();
+        let filled = match (site_letter(session, &mut look, &letters[0], journal, &group), site_letter(session, &mut look, &letters[1], journal, &group)) {
+            (Ok(a), Ok(b)) => [a, b],
+            (Err(e), _) | (_, Err(e)) => {
+                report.push(format!("{}: {} to {} not sent ({e:#})", group[0].paper, group[0].kind.what(), group[0].reviewer));
+                continue;
+            }
+        };
+        match session.with_relogin(|x| x.send_thank_you_notes(&boxes, copy, [filled[0].as_deref(), filled[1].as_deref()])) {
+            // Nothing was sent: tried again at the next check.
+            Err(e) => report.push(format!("{journal}: thank-you notes not sent ({e:#})")),
+            Ok(after) => {
+                let still = |d: &Due| {
+                    after.remaining.as_ref().map(|l| l.iter().any(|u| u.accept_box.as_deref() == Some(d.field.as_str()) || u.review_box.as_deref() == Some(d.field.as_str())))
+                };
+                let results: Vec<(Due, Option<bool>)> = group.iter().map(|d| (d.clone(), still(d))).collect();
+                finish(n, site, journal, results, after.problem, "the site still lists it as not thanked", report);
+            }
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn send_repeat(session: &mut Session, n: &mut Notes, site: &str, journal: &str, which: SiteList, list: &[SiteItem], send: &[Due], report: &mut Vec<String>) {
+fn send_repeat(
+    session: &mut Session,
+    n: &mut Notes,
+    site: &str,
+    journal: &str,
+    which: SiteList,
+    list: &[SiteItem],
+    send: &[Due],
+    letter: Option<String>,
+    copy: bool,
+    attach: bool,
+    report: &mut Vec<String>,
+) {
     if session.viewer() {
         report.extend(send.iter().map(|d| format!("{}: viewer mode — would send a {} to {} ({})", d.paper, d.kind.what(), d.reviewer, d.why)));
         return;
     }
-    let r = if which == SiteList::Confirmations { &n.confirm } else { &n.remind };
-    let (copy, attach) = (r.copy_me, r.attach);
-    let ids: Vec<String> = send.iter().map(|d| d.review_id.clone()).collect();
     let earlier: HashMap<&str, usize> = list.iter().map(|i| (i.review_id.as_str(), i.previous.len())).collect();
-    match session.with_relogin(|x| x.send_site_list(which, &ids, copy, attach)) {
-        Err(e) => report.push(format!("{journal}: {}s not sent ({e:#})", send[0].kind.what())),
-        Ok(after) => {
-            // Sent when the site's list shows one more earlier reminder (or request) for the review.
-            let still = |d: &Due| {
-                after.remaining.as_ref().map(|l| match l.iter().find(|i| i.review_id == d.review_id) {
-                    Some(i) => i.previous.len() <= earlier.get(d.review_id.as_str()).copied().unwrap_or(0),
-                    None => true,
-                })
-            };
-            let results: Vec<(Due, Option<bool>)> = send.iter().map(|d| (d.clone(), still(d))).collect();
-            finish(n, site, journal, results, after.problem, "the site does not show it as sent", report);
+    let mut look = Lookup::default();
+    for group in groups(send, std::slice::from_ref(&letter)) {
+        let ids: Vec<String> = group.iter().map(|d| d.review_id.clone()).collect();
+        let filled = match site_letter(session, &mut look, &letter, journal, &group) {
+            Ok(f) => f,
+            Err(e) => {
+                report.push(format!("{}: {} to {} not sent ({e:#})", group[0].paper, group[0].kind.what(), group[0].reviewer));
+                continue;
+            }
+        };
+        match session.with_relogin(|x| x.send_site_list(which, &ids, copy, attach, filled.as_deref())) {
+            Err(e) => report.push(format!("{journal}: {}s not sent ({e:#})", group[0].kind.what())),
+            Ok(after) => {
+                // Sent when the site's list shows one more earlier reminder (or request) for the review.
+                let still = |d: &Due| {
+                    after.remaining.as_ref().map(|l| match l.iter().find(|i| i.review_id == d.review_id) {
+                        Some(i) => i.previous.len() <= earlier.get(d.review_id.as_str()).copied().unwrap_or(0),
+                        None => true,
+                    })
+                };
+                let results: Vec<(Due, Option<bool>)> = group.iter().map(|d| (d.clone(), still(d))).collect();
+                finish(n, site, journal, results, after.problem, "the site does not show it as sent", report);
+            }
         }
     }
+}
+
+/// The box of the site's thank-you list for `kind` (Accept: a reviewer who
+/// agreed and has not yet submitted; Review: a review received), if any.
+pub fn thanks_box(u: &Unthanked, kind: Kind) -> Option<&String> {
+    match kind {
+        Kind::Accept => u.accept_box.as_ref().filter(|_| u.state.to_lowercase().starts_with("confirm")),
+        Kind::Review => u.review_box.as_ref(),
+        _ => None,
+    }
+}
+
+/// How many thank-you notes the site's list offers: for agreeing, for the review.
+pub fn thanks_counts(list: &[Unthanked]) -> [usize; 2] {
+    [Kind::Accept, Kind::Review].map(|k| list.iter().filter(|u| thanks_box(u, k).is_some()).count())
+}
+
+/// What can be sent by hand now for `kind` in the open journal (the site's
+/// list), with the site's letter for it.
+pub fn offered(session: &mut Session, kind: Kind) -> Result<(Vec<Due>, String)> {
+    let site = session.site().to_string();
+    let mk = |kind: Kind, review_id: &str, paper: &str, reviewer: &str, field: &str, why: String| Due {
+        key: key(&site, kind, review_id),
+        kind,
+        review_id: review_id.into(),
+        paper: paper.into(),
+        reviewer: reviewer.into(),
+        field: field.into(),
+        why,
+    };
+    match kind {
+        Kind::Accept | Kind::Review => {
+            let (list, accept, review) = session.with_relogin(|x| x.thank_you_page())?;
+            let rows = list
+                .iter()
+                .filter_map(|u| thanks_box(u, kind).map(|field| mk(kind, &u.review_id, &u.paper, &u.reviewer, field, u.status_raw.clone())))
+                .collect();
+            Ok((rows, if kind == Kind::Accept { accept } else { review }))
+        }
+        Kind::Confirm | Kind::Remind => {
+            let which = if kind == Kind::Confirm { SiteList::Confirmations } else { SiteList::Reminders };
+            let (list, letter) = session.with_relogin(|x| x.site_list_page(which))?;
+            let rows = list
+                .iter()
+                .map(|it| {
+                    let days = it.days.map(|d| if kind == Kind::Confirm { format!("asked {d} days ago") } else if d >= 0 { format!("{d} days overdue") } else { format!("due in {} days", -d) });
+                    let n = it.previous.len();
+                    let why = [days, (n > 0).then(|| format!("{n} sent before"))].into_iter().flatten().collect::<Vec<_>>().join("; ");
+                    mk(kind, &it.review_id, &it.paper, &it.reviewer, &it.review_id, why)
+                })
+                .collect();
+            Ok((rows, letter))
+        }
+    }
+}
+
+/// Send notes of `kind` by hand to the reviews `ids` of the open journal
+/// (`letter`: a text with Docket's placeholders instead of the site's
+/// letter). Recorded like the automatic ones. Returns one line per note.
+pub fn send_by_hand(session: &mut Session, kind: Kind, ids: &[String], letter: Option<String>, copy: bool, attach: bool) -> Result<Vec<String>> {
+    if let Some(l) = &letter {
+        letters::check(l)?;
+    }
+    let site = session.site().to_string();
+    let journal = session.journal.as_ref().map(|j| j.name.clone()).unwrap_or_default();
+    let mut n = Notes::load();
+    let (rows, _) = offered(session, kind)?;
+    let send: Vec<Due> = rows.into_iter().filter(|d| ids.contains(&d.review_id)).collect();
+    let mut report: Vec<String> = ids.iter().filter(|id| !send.iter().any(|d| &d.review_id == *id)).map(|id| format!("review {id}: not on PaperPlaza's list, nothing sent")).collect();
+    if send.is_empty() {
+        anyhow::bail!("{}", if report.is_empty() { "nothing to send".to_string() } else { report.join("\n") });
+    }
+    match kind {
+        Kind::Accept => send_thanks(session, &mut n, &site, &journal, &send, [letter, None], copy, &mut report),
+        Kind::Review => send_thanks(session, &mut n, &site, &journal, &send, [None, letter], copy, &mut report),
+        Kind::Confirm | Kind::Remind => {
+            let which = if kind == Kind::Confirm { SiteList::Confirmations } else { SiteList::Reminders };
+            let (list, _) = session.with_relogin(|x| x.site_list_page(which))?;
+            send_repeat(session, &mut n, &site, &journal, which, &list, &send, letter, copy, attach, &mut report);
+        }
+    }
+    let done: Vec<String> = send.iter().map(|d| d.key.clone()).collect();
+    n.pending.retain(|p| !done.contains(&p.key));
+    n.save()?;
+    Ok(report)
 }
 
 /// Record what was sent (`Some(false)`: no longer pending on the site's list)

@@ -688,8 +688,8 @@ fn site_notes() {
     let on = |r: bool| Rule { on: r, since: None };
     let fresh = |accept: bool, confirm: bool, remind: bool, ask: bool| {
         let mut n = Notes::default();
-        let rep = |on: bool, max: u32| Repeat { on, after_days: 7, max, ask, copy_me: true, attach: true };
-        n.set(ThanksSettings { accept: on(accept), review: on(false), copy_me: false, ask }, rep(confirm, 2), rep(remind, 3), Some((crate::papercept::SITES[0].0, "tac", "IEEE-TAC", true)), long_ago);
+        let rep = |on: bool, max: u32| Repeat { on, after_days: 7, max, ask, copy_me: true, attach: true, letter: String::new() };
+        n.set(ThanksSettings { accept: on(accept), review: on(false), copy_me: false, ask, ..Default::default() }, rep(confirm, 2), rep(remind, 3), Some((crate::papercept::SITES[0].0, "tac", "IEEE-TAC", true)), long_ago);
         n
     };
     let sends = |cmd: &str| {
@@ -748,4 +748,56 @@ fn site_notes() {
     // Checked again: nothing is sent twice.
     let again = crate::notes::run(&mut s, &mut n, None);
     assert_eq!((sends("SendThankYouNotes").len(), sends("SendReminders").len()), (1, 2), "{again:#?}");
+
+    // By hand, with one of the templates as the letter: the reviewer's name
+    // becomes the site's placeholders, the rest is filled in.
+    let tpl = |name: &str, body: &str| crate::templates::Template { name: name.into(), subject: String::new(), body: body.into() };
+    crate::templates::Templates { signature: "J. Smith".into(), list: vec![tpl("Thanks", "Dear %reviewerfirstname,\n\nthank you.\n%signature"), tpl("Late", "Dear %reviewername, review %reviewid is late.")] }
+        .save()
+        .unwrap();
+    let (rows, letter) = crate::notes::offered(&mut s, Kind::Accept).unwrap();
+    assert!(rows.iter().any(|d| d.review_id == id) && letter.starts_with("Dear %YOUR_TITLE% %YOUR_GIVEN_NAME%"));
+    let report = crate::notes::send_by_hand(&mut s, Kind::Accept, &[id.clone(), "999999999".into()], Some("Dear %reviewerfirstname,\n\nthank you.\n%signature".into()), true, false).unwrap();
+    assert!(report.iter().any(|l| l.contains("999999999") && l.contains("not on PaperPlaza's list")), "{report:#?}");
+    let thanks = sends("SendThankYouNotes");
+    assert_eq!(thanks.len(), 2);
+    let body = &thanks[1].1;
+    assert_eq!(checked(body, "ThankYouFor"), [format!("{accept_box}=ON")]);
+    assert!(body.contains("Cover_message_1=Dear+%25YOUR_GIVEN_NAME%25%2C") && body.contains("thank+you.") && body.contains("J.+Smith"), "{body}");
+    assert!(body.split('&').any(|kv| kv == "SendCopies=ON"));
+    // A letter with values of the review: each review is sent on its own, filled
+    // from its paper's Manage Reviews page (the replay has two papers' pages).
+    let (rows, _) = crate::notes::offered(&mut s, Kind::Remind).unwrap();
+    assert_eq!(rows.len(), rem.len());
+    let mut known: Vec<crate::model::Review> = Vec::new();
+    for p in s.load_papers(false).unwrap() {
+        known.extend(s.load_reviews(&p).unwrap_or_default());
+    }
+    let ids: Vec<String> = rows.iter().filter(|d| known.iter().any(|r| r.review_id == d.review_id)).take(2).map(|d| d.review_id.clone()).collect();
+    assert!(!ids.is_empty(), "a reminder row of a replayed paper");
+    let before = sends("SendReminders").len();
+    let letter = "Dear %reviewername, review %reviewid of “%title” is late.";
+    let report = crate::notes::send_by_hand(&mut s, Kind::Remind, &ids, Some(letter.into()), false, false).unwrap();
+    let sent = sends("SendReminders");
+    assert_eq!(sent.len(), before + ids.len(), "{report:#?}");
+    // The form is sent in the site's encoding (Windows-1252).
+    let field = |body: &str, name: &str| {
+        let v = body.split('&').find_map(|kv| kv.strip_prefix(&format!("{name}="))).unwrap_or_default().replace('+', " ");
+        let bytes: Vec<u8> = percent_encoding::percent_decode_str(&v).collect();
+        encoding_rs::WINDOWS_1252.decode(&bytes).0.into_owned()
+    };
+    for (q, rid) in sent[before..].iter().zip(&ids) {
+        let r = known.iter().find(|r| &r.review_id == rid).unwrap();
+        assert_eq!(checked(&q.1, "Include").len(), 1);
+        let want = format!("Dear %YOUR_GIVEN_NAME% %YOUR_SURNAME%, review {rid} of “{}” is late.", r.paper_title);
+        assert_eq!(field(&q.1, "Cover_message"), want);
+        assert!(!q.1.split('&').any(|kv| kv == "SendCopies=ON" || kv == "AttachSubmission=ON"));
+    }
+    // A review whose paper's page cannot be read is reported, not sent with an unfilled letter.
+    let other: Vec<String> = rows.iter().filter(|d| !known.iter().any(|r| r.review_id == d.review_id)).take(1).map(|d| d.review_id.clone()).collect();
+    if !other.is_empty() {
+        let report = crate::notes::send_by_hand(&mut s, Kind::Remind, &other, Some(letter.into()), false, false).unwrap();
+        assert!(report.iter().any(|l| l.contains("not sent") && l.contains("reading the review for the letter")), "{report:#?}");
+        assert_eq!(sends("SendReminders").len(), before + ids.len());
+    }
 }

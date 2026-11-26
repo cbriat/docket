@@ -275,7 +275,7 @@ function popOut(view, query, title, [width, height], inline) {
 // Tell the other windows that something changed.
 function tell(event, data = null) { if (NATIVE) native({ cmd: "broadcast", event, data }); }
 window.docketEvent = (event, data) => {
-  if (event === "reviews") { reviews = data; if (!VIEW) render(); }
+  if (event === "reviews") { reviews = data; if (!VIEW) { render(); loadAutoStatus(); } }
   if (event === "schedules") loadSchedules().then(() => { if (!VIEW) render(); });
   if (event === "reload" && !VIEW && S.role) load();
   if (event === "paper-closed" && !VIEW && mode === "editor") refreshPaper(data, true);
@@ -442,6 +442,7 @@ async function load() {
     setMode(j.mode);
     papers = j.papers || []; reviews = j.reviews || []; assignments = j.assignments || [];
     folded = new Set(j.folded || []);
+    autoStatus.unthanked = j.unthanked || null;
     await loadSchedules();
     for (const id of [...selected]) if (!reviews.some((r) => r.review_id === id)) selected.delete(id);
     $("warnings").innerHTML = (j.warnings || []).map((w) => `<div>${esc(w)}</div>`).join("");
@@ -611,6 +612,8 @@ function messageWindow(template) {
 let draft = { subject: "", cc: "", message: "Dear %reviewerfirstname,\n\n\n\nBest regards,\n%signature", template: "", do_not_archive: false, my_eyes_only: false, do_not_copy_me: false };
 let tpl = { signature: "", list: [], defaults: [], placeholders: [] };
 async function loadTemplates() { tpl = await api("templates"); }
+// PaperPlaza's letters as templates (see site_letters).
+let siteTpl = [];
 const chips = (where) => tpl.placeholders.map((p) => `<button class="chip ph" data-ph="${esc(p.name)}" data-for="${where}" title="${esc(p.about)}">${esc(p.name)}</button>`).join(" ");
 // Insert a placeholder where the cursor is, in the field last used.
 function wireChips(fields) {
@@ -634,7 +637,7 @@ async function contactForm(start = {}) {
     draft = { ...draft, cc: m.cc || "", do_not_copy_me: !m.copy_me, do_not_archive: !!m.do_not_archive, my_eyes_only: !!m.my_eyes_only, defaults: true };
   }
   if (start.template) {
-    const t = tpl.list.find((x) => x.name === start.template);
+    const t = [...tpl.list, ...siteTpl].find((x) => x.name === start.template);
     if (t) draft = { ...draft, subject: t.subject, message: t.body, template: t.name };
   }
   const rs = selectedList();
@@ -644,8 +647,11 @@ async function contactForm(start = {}) {
     Placeholders such as <code>%reviewerfirstname</code> or <code>%deadline</code> are replaced for each reviewer.</div>
     <div class="cols"><div>
     <div class="row"><label class="inline" style="margin:0">Template
-      <select id="mTpl" style="width:auto"><option value="">— none —</option>${tpl.list.map((t) => `<option ${t.name === draft.template ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
+      <select id="mTpl" style="width:auto"><option value="">— none —</option>${tpl.list.map((t) => `<option ${t.name === draft.template ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
+        <optgroup label="PaperPlaza's letters" id="mSiteTpl">${siteTpl.map((t) => `<option ${t.name === draft.template ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</optgroup></select></label>
       <button class="link small" id="mTplEdit">Edit templates…</button></div>
+    ${mode === "editor" ? `<div class="small">Or let PaperPlaza send its own note (recorded on the site):
+      ${siteMenuItems().map((it, i) => `<button class="link small" data-site-i="${i}" ${it.disabled ? `disabled title="${esc(it.disabled)}"` : ""}>${esc(it.label.replace(/^PaperPlaza /, ""))}</button>`).join(" · ")}</div>` : ""}
     <label for="mSubject">Subject</label><input id="mSubject" type="text" placeholder="Empty: PaperPlaza's default, e.g. “IEEE-TAC 26-1234: Your review”" value="${esc(draft.subject)}">
     <label for="mCc">Cc <span class="muted small">(comma-separated e-mail addresses)</span></label><input id="mCc" type="text" value="${esc(draft.cc)}">
     <label for="mMsg">Message</label><textarea id="mMsg" style="min-height:300px">${esc(draft.message)}</textarea>
@@ -678,8 +684,14 @@ async function contactForm(start = {}) {
   }
   const soon = () => { clearTimeout(timer); timer = setTimeout(live, 350); };
   $("mSubject").oninput = soon; $("mMsg").oninput = soon; $("mWho").onchange = live;
+  for (const b of document.querySelectorAll("[data-site-i]")) b.onclick = () => siteMenuItems()[Number(b.dataset.siteI)].run();
+  // PaperPlaza's letters of this journal (read once from the site).
+  if (mode === "editor" && !siteTpl.length) api("site_letters").then((x) => {
+    siteTpl = x.templates || [];
+    if ($("mSiteTpl")) $("mSiteTpl").innerHTML = siteTpl.map((t) => `<option>${esc(t.name)}</option>`).join("");
+  }).catch(() => {});
   $("mTpl").onchange = () => {
-    const t = tpl.list.find((x) => x.name === $("mTpl").value);
+    const t = [...tpl.list, ...siteTpl].find((x) => x.name === $("mTpl").value);
     if (t) { $("mSubject").value = t.subject; $("mMsg").value = t.body; }
     live();
   };
@@ -860,6 +872,8 @@ function reviewMenu(e, rid) {
     { label: "Read the review and its attachments", disabled: r && isDone(r) ? "" : "Not submitted yet", run: () => reviewsWindow([rid]) },
     { label: "Review details", run: () => reviewDetails(rid) },
     "-",
+    ...siteMenuItems(),
+    "-",
     { label: `Message${many}…`, disabled: viewerNote(), run: () => messageWindow() },
     { label: `Extend deadline${many}…`, disabled: viewerNote(), run: extendForm },
     { label: `Cancel request${many}…`, danger: true, disabled: viewerNote(), run: cancelForm },
@@ -891,6 +905,92 @@ function pickerWindow(pid) {
     return autoForm(pid);
   });
 }
+// ------------------------------------------- PaperPlaza's own notes, sent by hand
+const SITE_KINDS = {
+  accept: { title: "Thank-you notes for agreeing to review", short: "thank-you note", busy: "Reading PaperPlaza's Send Thank You Notes page…" },
+  review: { title: "Thank-you notes for submitted reviews", short: "thank-you note", busy: "Reading PaperPlaza's Send Thank You Notes page…" },
+  remind: { title: "PaperPlaza review reminders", short: "reminder", busy: "Reading PaperPlaza's Send Review Reminders page…" },
+  confirm: { title: "PaperPlaza confirmation requests", short: "confirmation request", busy: "Reading PaperPlaza's Request Review Confirmations page…" },
+};
+// The site's note that fits these reviews (right-click and message window).
+function siteMenuItems() {
+  const rs = selectedList(), ids = rs.map((r) => r.review_id), n = rs.length;
+  const of = (f) => rs.filter(f).length;
+  const many = (k) => (k === n && n > 1 ? ` (${n} selected)` : k && k < n ? ` (${k} of ${n})` : "");
+  const no = (k, why) => viewerNote() || (k ? "" : why);
+  const confirmed = of((r) => /^confirm/i.test(r.state)), done = of(isDone);
+  const unanswered = of((r) => !/^(confirm|receiv|submit|cancel|declin)/i.test(r.state));
+  return [
+    { label: `PaperPlaza reminder${many(confirmed)}…`, disabled: no(confirmed, "Only for accepted reviews not yet submitted"), run: () => siteWindow("remind", ids) },
+    { label: `PaperPlaza confirmation request${many(unanswered)}…`, disabled: no(unanswered, "Only for invitations not answered"), run: () => siteWindow("confirm", ids) },
+    { label: `PaperPlaza thanks for agreeing${many(confirmed)}…`, disabled: no(confirmed, "Only for accepted reviews not yet submitted"), run: () => siteWindow("accept", ids) },
+    { label: `PaperPlaza thanks for the review${many(done)}…`, disabled: no(done, "Only for submitted reviews"), run: () => siteWindow("review", ids) },
+  ];
+}
+function siteWindow(kind, ids) {
+  if (!SITE_KINDS[kind]) return;
+  popOut("site", { kind, ids: (ids || []).join(",") }, SITE_KINDS[kind].title, [1100, 920], () => siteForm(kind, ids || []));
+}
+async function siteForm(kind, ids) {
+  const K = SITE_KINDS[kind];
+  let j;
+  try { j = await api("site_offer", { kind }, K.busy); } catch (e) { return say(e.message); }
+  const norm = (t) => (t || "").replace(/\r\n?/g, "\n");
+  const siteLetter = norm(j.letter);
+  const want = new Set(ids);
+  const rows = j.rows;
+  const missing = ids.filter((id) => !rows.some((r) => r.review_id === id)).map((id) => { const r = reviews.find((x) => x.review_id === id); return r ? `${r.reviewer} (${r.paper_id})` : id; });
+  const chosen = j.templates.find((t) => t.name === j.chosen && !t.problem) ? j.chosen : "";
+  const repeat = kind === "remind" || kind === "confirm";
+  openDialog(K.title + (j.journal ? ` — ${j.journal}` : ""), `
+    <div class="note small">Sent by PaperPlaza from its <em>Reminders and thanks</em> page and recorded there, like the notes you send on the site.
+      ${kind === "remind" ? "PaperPlaza's reminder letter is written for late reviews; the list also shows reviews not yet due." : ""}
+      ${j.viewer ? "<strong>Viewer mode:</strong> nothing is sent." : ""}</div>
+    ${missing.length ? `<div class="err small">Not on PaperPlaza's list (nothing will be sent to them): ${missing.map(esc).join(", ")}</div>` : ""}
+    ${rows.length ? `<div style="max-height:300px; overflow:auto"><table><thead><tr><th class="c-sel"><input type="checkbox" id="sAll"></th><th>Reviewer</th><th>Paper</th><th>Review</th><th>${repeat ? "" : "Status"}</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td><input type="checkbox" data-sid="${esc(r.review_id)}" ${!ids.length || want.has(r.review_id) ? "checked" : ""}></td>
+        <td>${esc(r.reviewer)}</td><td>${esc(r.paper)}</td><td class="muted">${esc(r.review_id)}</td><td class="small">${esc(r.why)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="card muted">PaperPlaza's list is empty: there is no ${esc(K.short)} to send in this journal.</div>`}
+    <div class="row" style="margin-top:10px"><label class="inline" style="margin:0">Letter
+      <select id="sLetter" style="width:auto"><option value="">PaperPlaza's letter</option>
+        ${j.templates.map((t) => `<option value="${esc(t.name)}" ${t.name === chosen ? "selected" : ""} ${t.problem ? `disabled title="${esc(t.problem)}"` : ""}>${esc(t.name)}${t.problem ? " (not usable here)" : ""}</option>`).join("")}</select></label>
+      <button class="link small" id="sReset">Back to PaperPlaza's letter</button></div>
+    <textarea id="sText" style="min-height:260px">${esc(chosen ? norm(j.templates.find((t) => t.name === chosen).body) : siteLetter)}</textarea>
+    <div class="muted small">PaperPlaza writes each reviewer's title and name in place of <code>%YOUR_TITLE% %YOUR_GIVEN_NAME% %YOUR_SURNAME%</code>
+      (and of <code>%reviewerfirstname</code>, <code>%reviewerlastname</code>, <code>%reviewername</code>) and adds the paper's details below the letter.
+      Your templates' other placeholders work too: with values of the paper or the review (such as <code>%title</code> or <code>%deadline</code>), Docket reads each review first and sends it on its own.</div>
+    <div class="row"><label class="inline"><input type="checkbox" id="sCopy" ${j.copy_me ? "checked" : ""}> Send me a copy</label>
+      ${repeat ? `<label class="inline"><input type="checkbox" id="sAttach" ${j.attach ? "checked" : ""}> Attach the submission</label>` : ""}</div>
+    <div class="note small hidden" id="sReport"></div><div class="err" id="dErr"></div>`,
+    `<button id="dClose">Close</button><button class="primary" id="sGo" ${rows.length ? "" : "disabled"}>Send</button>`);
+  dlg.classList.add("wide");
+  const boxes = () => [...document.querySelectorAll("[data-sid]")];
+  const picked = () => boxes().filter((b) => b.checked).map((b) => b.dataset.sid);
+  const label = () => { const k = picked().length; $("sGo").textContent = `Send ${k} ${K.short}${k === 1 ? "" : "s"}`; $("sGo").disabled = !k; };
+  for (const b of boxes()) b.onchange = label;
+  if ($("sAll")) { $("sAll").checked = boxes().every((b) => b.checked); $("sAll").onchange = () => { for (const b of boxes()) b.checked = $("sAll").checked; label(); }; }
+  label();
+  $("sLetter").onchange = () => { const t = j.templates.find((x) => x.name === $("sLetter").value); $("sText").value = t ? norm(t.body) : siteLetter; };
+  $("sReset").onclick = () => { $("sLetter").value = ""; $("sText").value = siteLetter; };
+  $("dClose").onclick = () => dlg.close();
+  $("sGo").onclick = async () => {
+    $("dErr").textContent = "";
+    const chosenIds = picked();
+    const text = norm($("sText").value);
+    if (!text.trim()) { $("dErr").textContent = "The letter is empty."; return; }
+    const letter = text === siteLetter ? null : text;
+    const who = rows.filter((r) => chosenIds.includes(r.review_id)).map((r) => `${r.reviewer} (${r.paper})`);
+    if (!(await ask(`Send ${who.length} ${K.short}${who.length === 1 ? "" : "s"} through PaperPlaza${letter ? ", with your letter" : ", with PaperPlaza's letter"}?\n\n${who.join("\n")}`, "Send"))) return;
+    try {
+      const r = await api("site_send", { kind, ids: chosenIds, letter, copy_me: $("sCopy").checked, attach: $("sAttach") ? $("sAttach").checked : false }, "Sending through PaperPlaza…");
+      reviews = r.reviews; seenRev = r.reviews_rev; autoStatus.unthanked = r.unthanked || null; tell("reviews", reviews); if (!VIEW) render(); syncMenus();
+      $("sReport").innerHTML = r.report.map(esc).join("<br>"); $("sReport").classList.remove("hidden");
+      for (const b of boxes()) if (chosenIds.includes(b.dataset.sid)) { b.checked = false; b.disabled = true; }
+      label();
+    } catch (e) { $("dErr").textContent = e.message; }
+  };
+}
+
 // Read one paper's reviewers again from PaperPlaza, without the busy screen
 // ("refreshing…" on the paper's row meanwhile). `auto`: not asked by the
 // user, so a failure is only noted above the table.
@@ -1365,6 +1465,8 @@ function syncMenus() {
     active: schedules.filter((s) => s.state === "active").length,
     paused: schedules.filter((s) => s.state === "paused").length,
     notes_on: !!autoStatus.notes_on,
+    notes_no_journal: !!autoStatus.notes_no_journal,
+    unthanked: mode === "editor" ? autoStatus.unthanked || null : null,
     pending: autoStatus.pending || 0,
     paused_all: !!autoStatus.paused,
   };
@@ -1465,8 +1567,11 @@ async function settingsForm(tab, msg) {
   const same = (p) => !!S.journal && p.site === S.site && p.journal.toLowerCase() === S.journal.code.toLowerCase();
   const others = n.journals.filter((p) => !same(p));
   const a = c.automation, h = a.hours || [8, 20];
+  // The letter: PaperPlaza's, or one of the templates.
+  const letterSel = (id, cur) => `<div class="row" style="margin-left:24px"><label class="inline">Letter <select id="${id}" style="width:auto">${opt("", cur, "PaperPlaza's letter")}${t.list.map((x) => opt(x.name, cur, x.name)).join("")}</select></label></div>`;
   const repeat = (id, r, what, days, note) => `
     <div class="row"><label class="inline"><input type="checkbox" id="${id}On" ${ck(r.on)}> ${what}</label></div>
+    ${letterSel(id + "Letter", r.letter || "")}
     <div class="row" style="margin-left:24px">
       <label class="inline">${days} <input type="text" class="num" id="${id}Days" value="${r.after_days}"> days</label>
       <label class="inline">at most <input type="text" class="num" id="${id}Max" value="${r.max}"> per review</label></div>
@@ -1501,16 +1606,21 @@ async function settingsForm(tab, msg) {
       <div class="note small">PaperPlaza's own notes, sent from its <em>Reminders and thanks</em> pages with the site's letters and recorded there,
         as if you sent them yourself on the site. No personal message is sent. With <em>Ask me first</em>, the notes wait for you:
         menu-bar icon → <em>Send Pending Site Notes…</em>.${S.viewer ? " <strong>Viewer mode:</strong> checks only report what would be sent." : ""}</div>
-      ${editor ? `<label class="inline"><input type="checkbox" id="sHere" ${ck(n.here)}> Send site notes for my papers in ${esc(S.journal.name)}</label>`
+      ${n.no_journal ? `<div class="err small">Site notes are turned on below, but for no journal, so nothing is sent.${editor ? " Save to turn them on for this journal." : " Open the Associate Editor role of a journal, then tick “Send site notes for my papers in …”."}</div>` : ""}
+      ${editor ? `<label class="inline"><input type="checkbox" id="sHere" ${ck(n.here || n.no_journal)}> Send site notes for my papers in ${esc(S.journal.name)}</label>`
         : `<div class="muted small">Open the Associate Editor role of a journal to turn site notes on for it.</div>`}
       ${others.length ? `<div class="small" style="margin-top:4px">Also on for: ${others.map((p) => `${esc(p.name || p.journal)}${p.site !== S.site ? ` (${esc(p.site)})` : ""}
         <button class="link small" data-rm-site="${esc(p.site)}" data-rm-journal="${esc(p.journal)}">remove</button>`).join(" · ")}</div>` : ""}
       <h3>Thank-you notes</h3>
       <div class="row"><label class="inline"><input type="checkbox" id="tAcc" ${ck(n.thanks.accept.on)}> For agreeing to review</label>${n.thanks.accept.on && n.thanks.accept.since ? `<span class="muted small">since ${esc(n.thanks.accept.since)}</span>` : ""}</div>
       <div class="row"><label class="inline"><input type="checkbox" id="tRev" ${ck(n.thanks.review.on)}> For submitting a review</label>${n.thanks.review.on && n.thanks.review.since ? `<span class="muted small">since ${esc(n.thanks.review.since)}</span>` : ""}</div>
+      <div class="row" style="margin-left:24px"><label class="inline">Letter for agreeing <select id="tAccLetter" style="width:auto">${opt("", n.thanks.accept_letter || "", "PaperPlaza's letter")}${t.list.map((x) => opt(x.name, n.thanks.accept_letter || "", x.name)).join("")}</select></label>
+        <label class="inline">for the review <select id="tRevLetter" style="width:auto">${opt("", n.thanks.review_letter || "", "PaperPlaza's letter")}${t.list.map((x) => opt(x.name, n.thanks.review_letter || "", x.name)).join("")}</select></label></div>
       <div class="row" style="margin-left:24px"><label class="inline"><input type="checkbox" id="tCopy" ${ck(n.thanks.copy_me)}> Send me a copy</label>
         <label class="inline"><input type="checkbox" id="tAsk" ${ck(n.thanks.ask)}> Ask me first</label></div>
-      <div class="muted small" style="margin-left:24px">Only acceptances and reviews dated from the day a note is turned on; the site lists only reviews it has not thanked.</div>
+      <div class="muted small" style="margin-left:24px">Only acceptances and reviews dated from the day a note is turned on; the site lists only reviews it has not thanked.
+        For earlier ones: menu-bar icon → <em>Send Thank-You Notes for Accepted Reviews…</em> (or <em>Submitted Reviews…</em>).
+        With a template as the letter, PaperPlaza writes the reviewer's title and name and adds the paper's details below it; with values of the paper or the review (such as <code>%title</code>), each review is sent on its own.</div>
       <h3>Confirmation requests</h3>
       ${repeat("rc", n.confirm, "Ask reviewers who have not answered an invitation to accept or decline", "After the invitation, and between requests:", "The site's own record of earlier requests counts.")}
       <h3>Review reminders</h3>
@@ -1561,7 +1671,7 @@ async function settingsForm(tab, msg) {
   for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => show(b.dataset.tab);
 
   const num = (id) => Number($(id).value.trim());
-  const rep = (id) => ({ on: $(id + "On").checked, after_days: num(id + "Days"), max: num(id + "Max"), attach: $(id + "Attach").checked, copy_me: $(id + "Copy").checked, ask: $(id + "Ask").checked });
+  const rep = (id) => ({ on: $(id + "On").checked, after_days: num(id + "Days"), max: num(id + "Max"), attach: $(id + "Attach").checked, copy_me: $(id + "Copy").checked, ask: $(id + "Ask").checked, letter: $(id + "Letter").value });
   const read = () => ({
     cfg: {
       ...(NATIVE ? { dock: $("sDock").value } : {}),
@@ -1573,11 +1683,16 @@ async function settingsForm(tab, msg) {
       auto_login: $("aAuto").checked, viewer: $("aViewer").checked,
     },
     login: $("sLogin").checked,
-    notes: { thanks: { accept: { on: $("tAcc").checked }, review: { on: $("tRev").checked }, copy_me: $("tCopy").checked, ask: $("tAsk").checked },
+    notes: { thanks: { accept: { on: $("tAcc").checked }, review: { on: $("tRev").checked }, copy_me: $("tCopy").checked, ask: $("tAsk").checked,
+        accept_letter: $("tAccLetter").value, review_letter: $("tRevLetter").value },
       confirm: rep("rc"), remind: rep("rr"), here: editor ? $("sHere").checked : undefined },
     signature: $("mSig").value,
   });
   const start = JSON.stringify(read());
+  // Turning a note on turns it on for this journal too (otherwise nothing would be sent).
+  for (const id of ["tAcc", "tRev", "rcOn", "rrOn"]) $(id).addEventListener("change", () => {
+    if ($(id).checked && editor && !$("sHere").checked) { $("sHere").checked = true; $("sMsg").textContent = `Site notes will also be turned on for ${S.journal.name} when you save.`; }
+  });
   const save = async () => {
     const x = read();
     for (const [k, v] of [["Reviewers needed", x.cfg.invite_defaults.needed], ["Invited at once", x.cfg.invite_defaults.at_once],
@@ -1630,6 +1745,7 @@ async function settingsForm(tab, msg) {
   // In the app, importing happens in the main window (it logs out).
   $("aImport").onclick = () => leave(() => { if (VIEW) { native({ cmd: "command", data: "settings-import" }); native({ cmd: "close" }); } else importSettings(); });
   $("aFolder").onclick = () => api("reveal_settings").catch((e) => { $("dErr").textContent = e.message; });
+  if (n.no_journal && editor && !msg) $("sMsg").textContent = `Site notes are on but for no journal: they will be turned on for ${S.journal.name} when you save.`;
   if ($("sLogin").checked && !c.auto_login) $("sMsg").textContent = "Open at login is on, but automatic login is off (Accounts & data): Docket will wait for you to log in.";
 
   let entries = null;
@@ -1736,6 +1852,7 @@ function menuCommand(action, arg) {
     thanks: () => openSettings("automation"),
     settings: () => openSettings(arg),
     "notes-pending": () => pendingForm(),
+    site: () => editorOnly() || siteWindow(arg),
     "pause-all": togglePauseAll,
     "sched-run": runSchedulesNow,
     "sched-pause": () => setAllSchedules("paused"),
@@ -1776,6 +1893,7 @@ async function bootView() {
     paper: () => paperDetails(PARAMS.get("paper")),
     staff: () => staffForm(PARAMS.get("paper")),
     settings: () => settingsForm(PARAMS.get("tab") || ""),
+    site: () => siteForm(PARAMS.get("kind"), ids),
   }[VIEW];
   if (open) await open();
   if (!dlg.open) {

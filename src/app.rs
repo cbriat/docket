@@ -81,6 +81,13 @@ struct MenuState {
     paused: usize,
     /// Site notes are on for some journal of this site.
     notes_on: bool,
+    /// Site notes are on, but for no journal.
+    #[serde(default)]
+    notes_no_journal: bool,
+    /// Thank-you notes on the site's list (for agreeing, for the review);
+    /// None when not known.
+    #[serde(default)]
+    unthanked: Option<[usize; 2]>,
     /// Site notes waiting for approval.
     pending: usize,
     /// All automation is paused (Settings → Automation).
@@ -318,11 +325,24 @@ fn review_items(st: &MenuState) -> Items {
         item(format!("{PAGE}remind-overdue"), format!("Remind Overdue Reviewers{}…", count(st.overdue)), act && st.overdue > 0),
         item(format!("{PAGE}nudge-unanswered"), format!("Nudge Unanswered Invitations{}…", count(st.unanswered)), act && st.unanswered > 0),
         sep(),
+        thanks_item(st, 0),
+        thanks_item(st, 1),
+        item(format!("{PAGE}site:remind"), "Send PaperPlaza Reminders…", act),
+        item(format!("{PAGE}site:confirm"), "Send PaperPlaza Confirmation Requests…", act),
         item(format!("{PAGE}notes-pending"), format!("Send Pending Site Notes{}…", count(st.pending)), st.pending > 0),
         check(format!("{PAGE}settings:automation"), "Site Notes (Thanks, Confirmations, Reminders)…", true, st.notes_on),
         item(format!("{PAGE}templates"), "Edit Message Templates…", st.logged_in),
     ]);
     v
+}
+
+/// "Send Thank-You Notes for Accepted (0) or Submitted (1) Reviews…", with
+/// the number on the site's list, greyed out when there is none.
+fn thanks_item(st: &MenuState, which: usize) -> Box<dyn IsMenuItem> {
+    let (kind, what) = if which == 0 { ("accept", "Accepted") } else { ("review", "Submitted") };
+    let n = st.unthanked.map(|u| u[which]);
+    let act = st.mode == "editor" && !st.viewer;
+    item(format!("{PAGE}site:{kind}"), format!("Send Thank-You Notes for {what} Reviews{}…", n.map(count).unwrap_or_default()), act && n != Some(0))
 }
 
 fn invitation_items(st: &MenuState) -> Items {
@@ -575,7 +595,7 @@ impl Shell {
         } else {
             format!("Automatic invitations: {} active{}", st.active, if st.paused > 0 { format!(", {} paused", st.paused) } else { String::new() })
         };
-        let notes = format!("Site notes: {}{}", if st.notes_on { "on" } else { "off" }, if st.pending > 0 { format!(", {} waiting for approval", st.pending) } else { String::new() });
+        let notes = format!("Site notes: {}{}", if st.notes_on { "on" } else if st.notes_no_journal { "on, but for no journal (Settings)" } else { "off" }, if st.pending > 0 { format!(", {} waiting for approval", st.pending) } else { String::new() });
         let journal = journal_items(st);
         let journal = Submenu::with_items("Journal and Role", true, &refs(&journal))?;
         let items: Items = vec![
@@ -585,6 +605,8 @@ impl Shell {
             sep(),
             item(SHOW_MAIN, "Open Docket", true),
             sep(),
+            thanks_item(st, 0),
+            thanks_item(st, 1),
             item(format!("{PAGE}notes-pending"), format!("Send Pending Site Notes{}…", count(st.pending)), st.pending > 0),
             item(format!("{PAGE}sched-run"), format!("Run Automatic Invitations Now{}…", count(st.active)), st.logged_in && st.active > 0),
             item(format!("{PAGE}remind-overdue"), format!("Remind Overdue Reviewers{}…", count(st.overdue)), act && st.overdue > 0),
@@ -620,7 +642,7 @@ impl Shell {
     fn page_command(&mut self, target: &EventLoopWindowTarget<UserEvent>, command: &str) {
         let (action, arg) = command.split_once(':').unwrap_or((command, ""));
         // These open their own window, or need none.
-        if !["settings", "pause-all"].contains(&action) {
+        if !["settings", "pause-all", "site"].contains(&action) {
             self.show_main(target);
         }
         self.send_menu(self.main, action, arg);

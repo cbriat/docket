@@ -903,11 +903,23 @@ impl Session {
         Ok(parse_unthanked(self.current()?))
     }
 
+    /// The Send Thank You Notes list with the site's two letters (for
+    /// agreeing to review, for the review).
+    pub fn thank_you_page(&mut self) -> Result<(Vec<Unthanked>, String, String)> {
+        self.open_thank_you_notes()?;
+        let p = self.current()?;
+        let f = p.form().context("the Send Thank You Notes page has no form")?;
+        let letter = |n: &str| f.value(n).unwrap_or_default().to_string();
+        Ok((parse_unthanked(p), letter("Cover_message_1"), letter("Cover_message_2")))
+    }
+
     /// Send the site's own thank-you notes, with its own letters, to exactly
     /// the boxes named in `boxes` (see Unthanked). Errors before anything is
     /// sent are returned as Err; once the notes were submitted, the result says
     /// what the list shows afterwards, so the caller can tell what was sent.
-    pub fn send_thank_you_notes(&mut self, boxes: &[String], copy_me: bool) -> Result<AfterSend<Unthanked>> {
+    /// `letters`: replace the site's letter for agreeing to review, for the
+    /// review (None: the site's own).
+    pub fn send_thank_you_notes(&mut self, boxes: &[String], copy_me: bool, letters: [Option<&str>; 2]) -> Result<AfterSend<Unthanked>> {
         if boxes.is_empty() {
             bail!("no review to thank");
         }
@@ -924,6 +936,11 @@ impl Session {
         form.set_checked("C1", false);
         form.set_checked("C2", false);
         form.set_checked("SendCopies", copy_me);
+        for (name, text) in ["Cover_message_1", "Cover_message_2"].into_iter().zip(letters) {
+            if let Some(t) = text {
+                form.set(name, t);
+            }
+        }
         for (prefix, letter) in [("ThankYouForAccepting", "Cover_message_1"), ("ThankYouForSubmitting", "Cover_message_2")] {
             if boxes.iter().any(|b| b.starts_with(prefix)) && form.value(letter).is_none_or(|v| v.trim().is_empty()) {
                 bail!("the site's thank-you letter ({letter}) is empty");
@@ -964,10 +981,19 @@ impl Session {
         Ok(parse_site_list(self.current()?))
     }
 
+    /// One of the site's reminder lists with its letter.
+    pub fn site_list_page(&mut self, which: SiteList) -> Result<(Vec<SiteItem>, String)> {
+        self.open_site_list(which)?;
+        let p = self.current()?;
+        let letter = p.form().and_then(|f| f.value("Cover_message")).unwrap_or_default().to_string();
+        Ok((parse_site_list(p), letter))
+    }
+
     /// Send the site's own reminders or confirmation requests, with its own
     /// letter, to exactly the reviews `review_ids`. As send_thank_you_notes:
     /// Err only when nothing was sent.
-    pub fn send_site_list(&mut self, which: SiteList, review_ids: &[String], copy_me: bool, attach: bool) -> Result<AfterSend<SiteItem>> {
+    /// `letter`: replace the site's letter (None: the site's own).
+    pub fn send_site_list(&mut self, which: SiteList, review_ids: &[String], copy_me: bool, attach: bool, letter: Option<&str>) -> Result<AfterSend<SiteItem>> {
         if review_ids.is_empty() {
             bail!("no review selected");
         }
@@ -984,6 +1010,9 @@ impl Session {
         form.set_checked("CheckAll", false);
         form.set_checked("SendCopies", copy_me);
         form.set_checked("AttachSubmission", attach);
+        if let Some(t) = letter {
+            form.set("Cover_message", t);
+        }
         if form.value("Cover_message").is_none_or(|v| v.trim().is_empty()) {
             bail!("the site's letter is empty");
         }
