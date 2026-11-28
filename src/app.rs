@@ -451,6 +451,7 @@ fn build_menu() -> Result<(Menu, Menus)> {
         true,
         &[
             &MenuItem::with_id(SHOW_MAIN, "Main Window", true, cmd(Modifiers::META, Code::Digit1)),
+            &MenuItem::with_id(format!("{PAGE}calendar"), "Calendar", true, cmd(shift, Code::KeyK)),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::minimize(None),
             &PredefinedMenuItem::maximize(Some("Zoom")),
@@ -604,6 +605,7 @@ impl Shell {
             item("none", notes, false),
             sep(),
             item(SHOW_MAIN, "Open Docket", true),
+            item(format!("{PAGE}calendar"), "Calendar…", true),
             sep(),
             thanks_item(st, 0),
             thanks_item(st, 1),
@@ -642,7 +644,7 @@ impl Shell {
     fn page_command(&mut self, target: &EventLoopWindowTarget<UserEvent>, command: &str) {
         let (action, arg) = command.split_once(':').unwrap_or((command, ""));
         // These open their own window, or need none.
-        if !["settings", "pause-all", "site"].contains(&action) {
+        if !["settings", "pause-all", "site", "calendar"].contains(&action) {
             self.show_main(target);
         }
         self.send_menu(self.main, action, arg);

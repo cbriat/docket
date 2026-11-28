@@ -11,6 +11,7 @@ mod templates;
 mod notes;
 mod letters;
 mod activity;
+mod calendar;
 #[cfg(test)]
 mod replay_test;
 mod ui;

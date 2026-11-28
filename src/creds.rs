@@ -136,11 +136,13 @@ pub struct MessageDefaults {
     pub copy_me: bool,
     pub do_not_archive: bool,
     pub my_eyes_only: bool,
+    /// The calendar beside the text of a message.
+    pub calendar: bool,
 }
 
 impl Default for MessageDefaults {
     fn default() -> Self {
-        MessageDefaults { cc: String::new(), copy_me: true, do_not_archive: false, my_eyes_only: false }
+        MessageDefaults { cc: String::new(), copy_me: true, do_not_archive: false, my_eyes_only: false, calendar: true }
     }
 }
 

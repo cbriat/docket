@@ -27,6 +27,9 @@ your own account, on the same pages you use in the browser.
   enough reviewers have accepted.
 - **Site notes**: PaperPlaza's own thank-you notes, confirmation requests
   and overdue reminders, sent automatically or after your approval.
+- **Calendar** (⇧⌘K): review and decision deadlines next to your own
+  events from the Calendar app, a date picker that shows them wherever you
+  choose a date, and a calendar beside messages to look up and insert dates.
 - **Settings** (⌘,): automation pause, check interval and sending hours,
   open at login, notifications, defaults, and an activity log of everything
   Docket sent by itself.
@@ -96,11 +99,19 @@ Each paper is followed by its review requests: reviewer, review number,
 status, due date, reminder marks (`*`) and recommendation. Reviews are
 grouped by round, newest first: "Version 2 · current", "Version 1", then
 "Previous submission 25-1234 · version 1" for the reviews PaperPlaza lists
-under an earlier submission of the same paper. Older rounds are greyed out
-and never count for automatic invitations.
+under an earlier submission of the same paper. Older rounds are greyed out,
+start collapsed (click + beside "Version 1" to show its reviews; searching
+shows them all) and never count for automatic invitations. What you open or
+close is remembered. Each version keeps its line, with its number of reviews,
+even when the status filter hides all of them; opened, it says so and offers
+*Show all reviews*.
 
-Filter by status, search by reviewer, paper or title, and tick reviews to act
-on them. The − / + button at the left of a paper hides or shows its reviews
+Filter by status (for example *Requested, confirmed or received*, which
+leaves out canceled and declined requests), search by reviewer, paper or
+title, and tick reviews to act on them. The search and filter bar and the
+column titles stay at the top while you scroll. Every paper stays listed whatever the
+status filter (it says when the filter hides its reviews); a search shows only
+the papers that match. The − / + button at the left of a paper hides or shows its reviews
 (the one in the header does it for every paper); this is remembered per
 journal. *Export CSV* saves what is shown.
 
@@ -162,8 +173,16 @@ that page can be chosen.
 
 - **Cancel review requests**: Docket reads the status back to confirm each
   cancellation. No cancellation notice is sent (see *Limitations*).
-- **Extend deadlines** by 1 day to 4 weeks, using the site's own *Extend the
-  deadline* function.
+- **Extend deadlines** by one of the site's extensions (1, 3, 7, 10, 14, 21
+  or 28 days), or **until a date** you click on the calendar, which shows
+  your events and the other deadlines of each day. PaperPlaza only offers
+  those extensions, so for another date Docket makes several in a row with
+  the site's own *Extend the deadline* function, as you would by hand (18
+  days = 14 + 3 + 1). The preview shows the steps for each review. After
+  each step Docket reads the new date PaperPlaza answers and continues from
+  it; if the site does not move the deadline as expected, it stops and says
+  where the deadline is. Reviews already due on or after the date are
+  skipped, and the date can be at most 120 days after the current one.
 
 Canceled and received reviews are skipped.
 
@@ -262,6 +281,31 @@ menu also lists PaperPlaza's letters of the open journal (thanks, confirmation
 request, reminder). They are read from the site once and converted to Docket's
 placeholders, with the paper's details added at the end.
 
+### Calendar
+
+*Calendar* in the header, Window → Calendar (⇧⌘K) or the menu-bar icon
+opens a month view: weeks start on Monday, with week numbers. Each day shows
+the review deadlines (open reviews of the current versions; in the reviewer
+role, the reviews due from you), the decision deadlines and your own events.
+The list beside it details the chosen day; click a deadline to open its
+paper. Arrow keys move by day and week, Page Up/Down or scrolling by month,
+T goes back to today. The boxes at the top choose what is shown.
+
+Your own events come from the Calendar app (every account set up there:
+Exchange/Outlook, Google, iCloud…). Docket asks macOS for access the first
+time you click *Allow access to my calendar…*; it only reads the events, on
+this Mac, to show them. Because Docket is not signed with an Apple developer
+certificate, macOS may ask again after an update. Allow or remove access in
+System Settings → Privacy & Security → Calendars. Your events show in
+Docket.app, not when Docket runs from a terminal.
+
+The same small calendar opens wherever you choose a date (the review
+deadline of *Invite now*, with +2/+3/+4 weeks buttons), and sits beside the
+text of a message to reviewers or to the editors: hover over or click a day
+to see what is on it, double-click it (or click *Insert*) to write the date
+where the cursor is, in the format chosen above it. Settings → Messages
+turns this calendar off.
+
 ### Settings
 
 Docket → *Settings…* ⌘, (or the menu-bar icon, or *Settings* in the browser).
@@ -274,7 +318,7 @@ Docket → *Settings…* ⌘, (or the menu-bar icon, or *Settings* in the browse
   goes at the next allowed check); site notes (above).
 - **Invitations**: starting values of new automatic invitations.
 - **Messages**: signature and templates; Cc and options new messages start
-  with.
+  with; the calendar beside messages (on or off).
 - **Accounts & data**: logins and saved passwords, automatic login, viewer
   mode at login, export or import the settings, open the settings folder.
 - **Activity**: everything Docket sent or changed by itself (invitations,
@@ -309,7 +353,7 @@ the editor, or to copy the paper number. This view is read-only.
 - **Menu-bar icon** (a “D” page with a folded corner, at the top right of the
   screen). Click it for a summary (overdue reviews, unanswered invitations,
   active automatic invitations, site notes and those waiting for approval)
-  and the everyday commands: Open Docket, Send Pending Site Notes…, Run
+  and the everyday commands: Open Docket, Calendar…, Send Pending Site Notes…, Run
   Automatic Invitations Now…, Remind Overdue Reviewers…, Nudge Unanswered
   Invitations…, Reload, Pause All Automation, Settings…, Journal and Role,
   Quit.
@@ -333,7 +377,7 @@ the editor, or to copy the paper number. This view is read-only.
     them; send pending site notes; site notes settings; edit the templates.
   - Invitations: all schedules, run them now, pause or resume them all,
     pause all automation, open one.
-  - Window: Main Window ⌘1.
+  - Window: Main Window ⌘1, Calendar ⇧⌘K.
 
 While Docket waits for the site (sending, reading a long list), a message
 with a running time covers the window: nothing else can be clicked, and that
@@ -379,6 +423,7 @@ automation on one of them (Settings → Automation), or both will send.
 | Activity log (what Docket sent by itself) | `~/Library/Application Support/Docket/activity.json` |
 | Open at login | `~/Library/LaunchAgents/local.docket.Docket.login.plist` |
 | Passwords | macOS Keychain, service "Docket" |
+| Calendar events | read from the Calendar app when shown; not stored |
 | Downloaded PDFs | `~/Library/Caches/Docket/files` (emptied at each start) |
 
 ## Command line

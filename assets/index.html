@@ -44,6 +44,11 @@ button:disabled { opacity: .5; cursor: default; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .toolbar input[type=search] { width: 260px; }
 .toolbar select { width: auto; }
+/* The search and filter bar and the column titles stay in view while scrolling. */
+#vMain .toolbar { position: sticky; top: var(--hdr-h, 0px); z-index: 4; background: var(--bg); margin: -20px -20px 0; padding: 14px 20px; }
+#vMain .toolbar.stuck { box-shadow: 0 1px 0 var(--line), 0 6px 10px -8px rgba(0,0,0,.35); }
+#tableWrap > table { overflow: clip; }
+#tableWrap > table > thead th { position: sticky; top: calc(var(--hdr-h, 0px) + var(--tb-h, 0px)); z-index: 3; box-shadow: inset 0 -1px 0 var(--line); }
 .spacer { flex: 1; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
 th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -102,6 +107,49 @@ input.num { width: 4.5em; }
 #busy::backdrop { background: rgba(10,14,22,.35); }
 #busy .spin { flex: none; width: 18px; height: 18px; margin-top: 2px; border: 2px solid var(--line); border-top-color: var(--accent, #6b8cff); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Calendar */
+.cal-top { margin: 0 0 8px; align-items: center; } .cal-top button { padding: 4px 12px; } .cal-title { min-width: 150px; text-align: center; font-size: 16px; }
+.cal-main { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px; height: max(380px, min(640px, calc(100vh - 370px))); }
+body.sub .cal-main { height: calc(100vh - 225px); }
+.cal-grid { display: grid; grid-template-columns: 30px repeat(7, minmax(0, 1fr)); grid-template-rows: auto repeat(6, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; outline: none; }
+.cal-grid:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.cal-grid .h { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.cal-grid .wk { font-size: 10.5px; color: var(--muted); padding: 5px 2px; text-align: center; border-bottom: 1px solid var(--line); }
+.cal-grid .c { border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 3px 5px; overflow: hidden; cursor: pointer; min-width: 0; }
+.cal-grid .c.we { background: color-mix(in srgb, var(--chip) 45%, transparent); }
+.cal-grid .c.out { color: var(--muted); } .cal-grid .c.out .it { opacity: .6; }
+.cal-grid .c.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-grid .dn { font-size: 12px; font-weight: 600; margin-bottom: 1px; }
+.cal-grid .c.today .dn span { background: var(--accent); color: var(--accent-text); border-radius: 999px; padding: 0 6px; }
+.it { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; }
+.it.dl { font-weight: 600; color: var(--accent); } .it.dl.decision { color: var(--warn); } .it.dl.over { color: var(--danger); }
+.it i, .ag i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; flex: none; }
+i.mk.review { background: var(--accent); } i.mk.decision { background: var(--warn); } i.mk.over { background: var(--danger); }
+.cal-day { overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.day-head { margin-bottom: 4px; }
+.ag { padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; } .ag:last-child { border-bottom: 0; }
+.ag button.link { text-align: left; font-size: 13px; }
+.cal-access { margin: 0 0 8px; }
+.datef { display: inline-block; }
+.datebtn { display: inline-flex; gap: 7px; align-items: center; padding: 5px 10px; }
+.datepop { position: fixed; z-index: 40; width: 310px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 10px; }
+.mc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; } .mc-head button { padding: 1px 10px; }
+.mc-grid { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 2px; outline: none; }
+.mc-grid:focus-visible .d.focus { box-shadow: 0 0 0 2px var(--accent); }
+.mc-grid .h, .mc-grid .wk { font-size: 10.5px; color: var(--muted); text-align: center; align-self: center; }
+.mc-grid button.d { padding: 3px 0 1px; border: 1px solid transparent; border-radius: 6px; background: none; font-size: 12.5px; line-height: 1.2; display: flex; flex-direction: column; align-items: center; min-height: 30px; min-width: 0; }
+.mc-grid button.d.we { background: color-mix(in srgb, var(--chip) 50%, transparent); }
+.mc-grid button.d:hover:not(:disabled), .mc-grid button.d.focus { border-color: var(--line); background: var(--chip); }
+.mc-grid button.d.out { color: var(--muted); }
+.mc-grid button.d.today { font-weight: 700; color: var(--accent); }
+.mc-grid button.d.on, .mc-grid button.d.on:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.mc-grid button.d:disabled { opacity: .28; }
+.mc-grid button.d.on .dots i { box-shadow: 0 0 0 1.5px var(--accent-text); }
+.dots { display: flex; gap: 2px; height: 5px; margin-top: 2px; } .dots i { width: 5px; height: 5px; border-radius: 50%; }
+.mc-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; } .mc-quick button { padding: 3px 8px; font-size: 12px; }
+.mc-info { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; max-height: 170px; overflow: auto; font-size: 12.5px; }
+.mc-info .ag { font-size: 12.5px; padding: 3px 0; }
+.calpanel { margin-top: 12px; }
 code { background: var(--chip); padding: 0 4px; border-radius: 4px; }
 #menu { position: fixed; z-index: 30; min-width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 4px; }
 #menu button { display: block; width: 100%; text-align: left; border: 0; border-radius: 5px; padding: 6px 10px; background: none; }
@@ -132,6 +180,7 @@ body.sub #aQueue, body.sub #aCands { max-height: calc(100vh - 430px); min-height
   <select id="hdrJournal" class="hidden" title="Journal"></select>
   <select id="hdrRole" class="hidden" title="Role"></select>
   <button id="btnReload" class="hidden">Reload from PaperPlaza</button>
+  <button id="btnCal" title="Calendar (⇧⌘K)">Calendar</button>
   <button id="btnSettings" title="Settings">Settings</button>
   <button id="btnLogout" class="hidden">Log out</button>
 </header>
@@ -212,7 +261,7 @@ const prefs = () => (S && S.prefs) || {};
 let folded = new Set();
 function saveFolded() { api("fold", { ids: [...folded] }).catch(() => {}); }
 const FILTERS = {
-  editor: [["all", "All reviews"], ["accepted", "Accepted or received"], ["open", "Open (requested or confirmed)"], ["overdue", "Overdue"], ["confirmed", "Confirmed"], ["received", "Received"], ["canceled", "Canceled"], ["declined", "Declined"]],
+  editor: [["all", "All reviews"], ["active", "Requested, confirmed or received"], ["accepted", "Accepted or received"], ["open", "Open (requested or confirmed)"], ["overdue", "Overdue"], ["confirmed", "Confirmed"], ["received", "Received"], ["canceled", "Canceled"], ["declined", "Declined"]],
   reviewer: [["all", "All"], ["open", "Not yet submitted"], ["overdue", "Overdue"], ["confirmed", "Confirmed"], ["submitted", "Submitted"], ["canceled", "Canceled"], ["declined", "Declined"]],
 };
 function setMode(m) {
@@ -275,7 +324,7 @@ function popOut(view, query, title, [width, height], inline) {
 // Tell the other windows that something changed.
 function tell(event, data = null) { if (NATIVE) native({ cmd: "broadcast", event, data }); }
 window.docketEvent = (event, data) => {
-  if (event === "reviews") { reviews = data; if (!VIEW) { render(); loadAutoStatus(); } }
+  if (event === "reviews") { reviews = data; if (!VIEW) { render(); loadAutoStatus(); } if (calRedraw) calRedraw(); }
   if (event === "schedules") loadSchedules().then(() => { if (!VIEW) render(); });
   if (event === "reload" && !VIEW && S.role) load();
   if (event === "paper-closed" && !VIEW && mode === "editor") refreshPaper(data, true);
@@ -458,14 +507,17 @@ const paperVersion = (p) => p.number.split(".").pop();
 const isCurrentRound = (r, p) => !r.from_submission && r.version === paperVersion(p);
 const roundLabel = (r, p) => r.from_submission ? `Previous submission ${r.from_submission} · version ${r.version}`
   : `Version ${r.version}${p && r.version === paperVersion(p) ? " · current" : ""}`;
+// Earlier versions start folded, the current one open; "round:<paper>|<round>" in `folded` flips that.
+const roundShut = (r, p) => folded.has(`round:${p.id}|${roundKey(r)}`) !== !isCurrentRound(r, p);
 const roundOf = (r) => roundLabel(r, papers.find((p) => p.id === r.paper_id));
 const isOpen = (r) => !/^(cancel|received|declined|submitted)/i.test(r.state);
 function matchesState(r) {
   const f = $("fState").value;
   if (f === "open" && !isOpen(r)) return false;
+  if (f === "active" && /^(cancel|declin)/i.test(r.state)) return false;
   if (f === "overdue" && !r.overdue) return false;
   if (f === "accepted" && !/^(confirmed|received|submitted)/i.test(r.state)) return false;
-  if (!["all", "open", "overdue", "accepted"].includes(f) && !r.state.toLowerCase().startsWith(f.slice(0, 6))) return false;
+  if (!["all", "active", "open", "overdue", "accepted"].includes(f) && !r.state.toLowerCase().startsWith(f.slice(0, 6))) return false;
   return true;
 }
 function hasText(fields) {
@@ -505,6 +557,9 @@ function renderAssignments() {
   updateBar();
 }
 
+// "3 received, 1 declined".
+const tallyOf = (rs) => Object.entries(rs.reduce((m, r) => { const k = r.state.toLowerCase().split(" ")[0]; m[k] = (m[k] || 0) + 1; return m; }, {})).map(([k, n]) => `${n} ${k}`).join(", ");
+
 function render() {
   if (mode === "reviewer") return renderAssignments();
   const shown = reviews.filter(matches);
@@ -516,11 +571,11 @@ function render() {
     const rs = shown.filter((r) => r.paper_id === p.id);
     const q = $("q").value.trim().toLowerCase();
     const paperHit = q && [p.id, p.number, p.title, p.authors].join(" ").toLowerCase().includes(q);
-    if (!rs.length && !paperHit && (q || $("fState").value !== "all")) continue;
+    // Every paper stays listed under the status filter (its versions say what the filter hides); a search narrows the list.
+    if (q && !rs.length && !paperHit) continue;
     const allSel = rs.length && rs.every((r) => selected.has(r.review_id));
     const shut = folded.has(p.id);
-    const tally = Object.entries(reviews.filter((r) => r.paper_id === p.id).reduce((m, r) => { const k = r.state.toLowerCase().split(" ")[0]; m[k] = (m[k] || 0) + 1; return m; }, {}))
-      .map(([k, n]) => `${n} ${k}`).join(", ");
+    const tally = tallyOf(reviews.filter((r) => r.paper_id === p.id));
     h += `<tr class="paper" data-pid="${esc(p.id)}"><td><button class="tog" data-fold="${esc(p.id)}" title="${shut ? "Show" : "Hide"} the reviews">${shut ? "+" : "−"}</button></td>
       <td><input type="checkbox" data-paper="${esc(p.id)}" ${allSel ? "checked" : ""} ${rs.length ? "" : "disabled"}></td>
       <td colspan="6">${esc(p.number)} — ${esc(p.title)}${schedChip(p.id)}
@@ -528,25 +583,44 @@ function render() {
       · <button class="link small" data-auto="${esc(p.id)}">Find reviewers and invite…</button>
       · ${refreshing.has(p.id) ? `<span class="muted">refreshing…</span>` : `<button class="link small" data-refresh="${esc(p.id)}" title="Read this paper's reviewers again from PaperPlaza">Refresh</button>`}</div></td></tr>`;
     if (shut) continue;
-    if (!rs.length) h += `<tr><td></td><td></td><td colspan="6" class="muted small">No reviews match the filter.</td></tr>`;
+    const all = reviews.filter((r) => r.paper_id === p.id);
+    if (!all.length) h += `<tr><td></td><td></td><td colspan="6" class="muted small">No reviews listed.</td></tr>`;
     // Reviews grouped by round: this paper's versions, newest first, then previous submissions.
-    const many = new Set(reviews.filter((r) => r.paper_id === p.id).map(roundKey)).size > 1;
-    let last = null;
-    for (const r of [...rs].sort((a, b) => roundOrder(a) - roundOrder(b))) {
-      const st = r.state.toLowerCase().split(" ")[0];
-      const old = !isCurrentRound(r, p);
-      if (many && roundKey(r) !== last) {
-        last = roundKey(r);
-        h += `<tr class="round"><td></td><td></td><td colspan="6">${esc(roundLabel(r, p))}</td></tr>`;
+    // Every round keeps its line, even when the filter hides all its reviews (not when searching).
+    const rounds = new Map();
+    for (const r of [...all].sort((a, b) => roundOrder(a) - roundOrder(b))) { const k = roundKey(r); if (!rounds.has(k)) rounds.set(k, []); rounds.get(k).push(r); }
+    const many = rounds.size > 1;
+    if (q && all.length && !rs.length) h += `<tr><td></td><td></td><td colspan="6" class="muted small">No reviews match the search${$("fState").value === "all" ? "" : " and the filter"}.</td></tr>`;
+    for (const [rk, inRound] of rounds) {
+      const list = rs.filter((x) => roundKey(x) === rk);
+      if (q && !list.length) continue;
+      const key = `round:${p.id}|${rk}`;
+      const hide = many && !q && roundShut(inRound[0], p);
+      if (many) {
+        const sum = tallyOf(inRound);
+        const part = list.length < inRound.length ? ` · ${list.length} shown` : "";
+        h += `<tr class="round"><td>${q ? "" : `<button class="tog" data-round="${esc(key)}" title="${hide ? "Show" : "Hide"} the reviews of this version">${hide ? "+" : "−"}</button>`}</td><td></td>
+          <td colspan="6">${esc(roundLabel(inRound[0], p))}<span class="small" style="font-weight:400"> · ${inRound.length} review${inRound.length === 1 ? "" : "s"} (${esc(sum)})${part}</span></td></tr>`;
       }
-      h += `<tr class="review ${selected.has(r.review_id) ? "selected" : ""} ${old ? "old" : ""}" data-id="${esc(r.review_id)}">
-        <td></td><td><input type="checkbox" data-review="${esc(r.review_id)}" ${selected.has(r.review_id) ? "checked" : ""}></td>
-        <td>${esc(r.reviewer)} <span class="muted small">(${esc(r.pin)})</span></td>
-        <td class="muted">${esc(r.review_id)}</td>
-        <td><span class="badge s-${esc(st)}">${esc(r.state)}</span> <span class="muted small nowrap">${fmt(r.state_date)}${r.thanked ? " · thanked" : ""}</span></td>
-        <td class="nowrap ${r.overdue ? "overdue" : ""}">${fmt(r.due)}</td>
-        <td>${r.reminders ? "*".repeat(r.reminders) : ""}</td>
-        <td>${esc(r.recommendation)}</td></tr>`;
+      if (hide) continue;
+      if (!list.length) {
+        const label = (FILTERS.editor.find(([v]) => v === $("fState").value) || [, ""])[1];
+        h += `<tr><td></td><td></td><td colspan="6" class="muted small">${inRound.length} review${inRound.length === 1 ? "" : "s"} ${many ? "in this version" : "for this paper"}, none matching the filter “${esc(label)}”.
+          <button class="link small" data-showall>Show all reviews</button></td></tr>`;
+        continue;
+      }
+      for (const r of list) {
+        const st = r.state.toLowerCase().split(" ")[0];
+        const old = !isCurrentRound(r, p);
+        h += `<tr class="review ${selected.has(r.review_id) ? "selected" : ""} ${old ? "old" : ""}" data-id="${esc(r.review_id)}">
+          <td></td><td><input type="checkbox" data-review="${esc(r.review_id)}" ${selected.has(r.review_id) ? "checked" : ""}></td>
+          <td>${esc(r.reviewer)} <span class="muted small">(${esc(r.pin)})</span></td>
+          <td class="muted">${esc(r.review_id)}</td>
+          <td><span class="badge s-${esc(st)}">${esc(r.state)}</span> <span class="muted small nowrap">${fmt(r.state_date)}${r.thanked ? " · thanked" : ""}</span></td>
+          <td class="nowrap ${r.overdue ? "overdue" : ""}">${fmt(r.due)}</td>
+          <td>${r.reminders ? "*".repeat(r.reminders) : ""}</td>
+          <td>${esc(r.recommendation)}</td></tr>`;
+      }
     }
   }
   h += `</tbody></table>`;
@@ -560,8 +634,10 @@ function render() {
   for (const cb of document.querySelectorAll("[data-review]")) cb.onchange = () => { cb.checked ? selected.add(cb.dataset.review) : selected.delete(cb.dataset.review); render(); };
   for (const b of document.querySelectorAll("[data-auto]")) b.onclick = () => pickerWindow(b.dataset.auto);
   for (const b of document.querySelectorAll("[data-refresh]")) b.onclick = () => refreshPaper(b.dataset.refresh);
+  for (const b of document.querySelectorAll("[data-showall]")) b.onclick = () => { $("fState").value = "all"; render(); };
+  for (const b of document.querySelectorAll("[data-round]")) b.onclick = () => { folded.has(b.dataset.round) ? folded.delete(b.dataset.round) : folded.add(b.dataset.round); saveFolded(); render(); };
   for (const b of document.querySelectorAll("[data-fold]")) b.onclick = () => { folded.has(b.dataset.fold) ? folded.delete(b.dataset.fold) : folded.add(b.dataset.fold); saveFolded(); render(); };
-  if ($("foldAll")) $("foldAll").onclick = () => { if (allShut) folded.clear(); else for (const p of papers) folded.add(p.id); saveFolded(); render(); };
+  if ($("foldAll")) $("foldAll").onclick = () => { if (allShut) { for (const p of papers) folded.delete(p.id); } else for (const p of papers) folded.add(p.id); saveFolded(); render(); };
   for (const tr of document.querySelectorAll("tr.paper[data-pid]")) tr.oncontextmenu = (e) => paperMenu(e, tr.dataset.pid);
   for (const tr of document.querySelectorAll("tr.review[data-id]")) tr.oncontextmenu = (e) => reviewMenu(e, tr.dataset.id);
   for (const cb of document.querySelectorAll("[data-paper]")) cb.onchange = () => {
@@ -571,7 +647,20 @@ function render() {
   updateBar();
 }
 $("q").oninput = render; $("fState").onchange = render;
+// Heights for the sticky toolbar and column titles (both change when the window narrows).
+{
+  const root = document.documentElement, hdr = document.querySelector("header"), tb = document.querySelector("#vMain .toolbar");
+  const size = () => {
+    root.style.setProperty("--hdr-h", `${hdr ? hdr.offsetHeight : 0}px`);
+    root.style.setProperty("--tb-h", `${tb.offsetHeight}px`);
+    tb.classList.toggle("stuck", tb.getBoundingClientRect().top <= (hdr ? hdr.offsetHeight : 0) + 0.5 && window.scrollY > 0);
+  };
+  new ResizeObserver(size).observe(tb);
+  if (hdr) new ResizeObserver(size).observe(hdr);
+  addEventListener("scroll", size, { passive: true });
+}
 $("btnClear").onclick = () => { selected.clear(); render(); };
+$("btnCal").onclick = () => calendarWindow();
 
 function updateBar() {
   $("bar").classList.toggle("show", mode === "editor" && selected.size > 0);
@@ -659,7 +748,7 @@ async function contactForm(start = {}) {
     </div><div><div class="note pv" style="margin-top:0">
       <div class="row small"><strong>Preview</strong> for <select id="mWho" style="width:auto; max-width:100%">${rs.map((r) => `<option value="${esc(r.review_id)}">${esc(r.reviewer)} · ${esc(r.paper_id)}</option>`).join("")}</select></div>
       <div class="small" style="margin-top:8px"><span class="muted">Subject:</span> <span id="mLiveSubj"></span></div>
-      <div class="qa"><div class="a" id="mLiveMsg"></div></div></div></div></div>
+      <div class="qa"><div class="a" id="mLiveMsg"></div></div></div>${calPanelOn() ? calPanelHtml() : ""}</div></div>
     <label for="mFile">Attachment <span class="muted small">(optional, under 5 MB, attached to every message)</span></label><input id="mFile" type="file">
     <div><label class="inline"><input type="checkbox" id="mNoArch" ${draft.do_not_archive ? "checked" : ""}> Do not archive</label>
     <label class="inline"><input type="checkbox" id="mEyes" ${draft.my_eyes_only ? "checked" : ""}> Archive for my eyes only</label>
@@ -696,6 +785,7 @@ async function contactForm(start = {}) {
     live();
   };
   wireChips(["mSubject", "mMsg"]);
+  wireCalPanel(["mSubject", "mMsg"]);
   $("mTplEdit").onclick = () => { keepDraft(); templatesForm(contactForm); };
   live();
   $("dClose").onclick = () => { keepDraft(); dlg.close(); };
@@ -769,16 +859,66 @@ function keepDraft() {
   draft = { subject: $("mSubject").value, cc: $("mCc").value, message: $("mMsg").value, template: $("mTpl").value, do_not_archive: $("mNoArch").checked, my_eyes_only: $("mEyes").checked, do_not_copy_me: $("mNoCopy").checked };
 }
 
+// The fewest extensions PaperPlaza offers that add up to `days`, largest first
+// (18 → 14 + 3 + 1); the same as papercept::extension_steps.
+const EXT_DAYS = [1, 3, 7, 10, 14, 21, 28];
+function extSteps(days) {
+  const best = [[0, 0]];
+  for (let d = 1; d <= days; d++) {
+    let b = [Infinity, 0];
+    for (const x of [...EXT_DAYS].reverse()) if (x <= d && best[d - x][0] + 1 < b[0]) b = [best[d - x][0] + 1, x];
+    best.push(b);
+  }
+  const out = [];
+  for (let d = days; d > 0; d -= best[d][1]) out.push(best[d][1]);
+  return out.sort((a, b) => b - a);
+}
+
 function extendForm() {
   const n = selected.size;
+  const dues = [...new Set(selectedList().filter(isOpen).map((r) => r.due).filter(Boolean))].sort();
+  const due = dues.length === 1 ? dues[0] : "";
+  const first = dues[0] || today();
+  const ext = [[1, "1 day"], [3, "3 days"], [7, "1 week"], [10, "10 days"], [14, "2 weeks"], [21, "3 weeks"], [28, "4 weeks"]];
   openDialog(`Extend ${n} deadline${n === 1 ? "" : "s"}`, `
     <div class="note small">Uses PaperPlaza's <em>Extend the deadline</em> function for each review. Canceled and received reviews are skipped.</div>
-    <label for="xDays">Extension</label>
-    <select id="xDays"><option value="1">1 day</option><option value="3">3 days</option><option value="7" selected>1 week</option><option value="10">10 days</option><option value="14">2 weeks</option><option value="21">3 weeks</option><option value="28">4 weeks</option></select>
+    <div class="cols"><div>
+    <label class="inline"><input type="radio" name="xMode" value="by" checked> By</label>
+    <select id="xDays" style="width:auto">${ext.map(([d, t]) => `<option value="${d}" ${d === 7 ? "selected" : ""}>${t}${due ? ` → ${shortDate(plus(due, d))}` : ""}</option>`).join("")}</select>
+    <div style="margin-top:6px"><label class="inline"><input type="radio" name="xMode" value="until"> Until</label>
+    <strong id="xUntilTxt" class="muted">click a day on the calendar</strong><input type="hidden" id="xUntil"></div>
+    <div class="muted small" id="xHow" style="margin-top:10px"></div>
+    <div class="muted small" style="margin-top:8px">${due ? `Now due ${esc(longDate(due))} (${fromNow(due)}).`
+      : dues.length > 1 ? `The selected reviews are due between ${esc(shortDate(dues[0]))} and ${esc(shortDate(dues[dues.length - 1]))}.` : ""}
+      PaperPlaza offers extensions of 1, 3, 7, 10, 14, 21 or 28 days; for another date Docket makes several in a row, as you would on the site.</div>
+    </div><div><div id="xCal"></div></div></div>
     <div class="err" id="dErr"></div>`,
     `<button id="dClose">Close</button><button class="primary" id="dNext">Preview</button>`);
+  const mode = () => document.querySelector("input[name=xMode]:checked").value;
+  const pickMode = (m) => { document.querySelector(`input[name=xMode][value=${m}]`).checked = true; how(); };
+  function how() {
+    const until = $("xUntil").value, el = $("xHow");
+    $("xUntilTxt").textContent = until ? longDate(until) : "click a day on the calendar";
+    $("xUntilTxt").classList.toggle("muted", !until);
+    if (mode() === "by") { el.textContent = due ? "" : "Each review moves by the extension from its own due date."; cal.set(due ? plus(due, Number($("xDays").value)) : ""); return; }
+    cal.set(until);
+    if (!until) { el.textContent = ""; return; }
+    if (due) {
+      const s = extSteps(between(due, until));
+      el.innerHTML = `${esc(shortDate(due))} → ${esc(shortDate(until))}: <strong>${s.join(" + ")} days</strong> (${s.length} extension${s.length === 1 ? "" : "s"} on PaperPlaza${s.length > 1 ? ", one after the other" : ""}).`;
+    } else el.textContent = "Each review is moved to this date with the fewest extensions; those already due later are skipped.";
+  }
+  const cal = miniCal($("xCal"), { value: due ? plus(due, 7) : "", min: plus(first, 1), max: plus(first, 120),
+    pick: (d) => { $("xUntil").value = d; pickMode("until"); } });
+  $("xDays").onchange = () => pickMode("by");
+  for (const r of document.querySelectorAll("input[name=xMode]")) r.onchange = how;
+  how();
   $("dClose").onclick = () => dlg.close();
-  $("dNext").onclick = () => preview({ action: "extend", days: Number($("xDays").value) }, (n) => `Extend ${n} deadline${n === 1 ? "" : "s"}`, "primary", extendForm);
+  $("dNext").onclick = () => {
+    if (mode() === "until" && !$("xUntil").value) { $("dErr").textContent = "Click the new due date on the calendar."; return; }
+    const req = mode() === "until" ? { action: "extend", until: $("xUntil").value } : { action: "extend", days: Number($("xDays").value) };
+    preview(req, (k) => `Extend ${k} deadline${k === 1 ? "" : "s"}`, "primary", extendForm);
+  };
 }
 
 function cancelForm() {
@@ -795,6 +935,7 @@ async function preview(req, verb, cls, back, intro = "") {
   const items = plan.items.map((i) => `<div class="item ${i.skip ? "bad" : ""}">
       <div><strong>${esc(i.reviewer)}</strong> <span class="muted small">(${esc(i.pin)}) · review ${esc(i.review_id)} · ${esc(i.paper_id)} · ${esc(i.status)}</span></div>
       ${i.skip ? `<div class="st">${esc(i.skip)}</div>` : ""}
+      ${i.note && !i.skip ? `<div class="small" style="margin-top:4px">${esc(i.note)}</div>` : ""}
       ${req.action === "contact" ? `<div class="small" style="margin-top:6px"><span class="muted">Subject:</span> ${esc(i.subject || "(PaperPlaza's default subject)")}</div><pre>${esc(i.message)}</pre>` : ""}
     </div>`).join("");
   openDialog("Check before sending", intro + `<div class="muted small" style="margin-top:12px">Nothing has been sent yet. ${doable} of ${plan.items.length} will be processed.</div>` + items,
@@ -1151,13 +1292,14 @@ async function staffForm(pid) {
       <span class="muted small">(${esc(h.role)}, ${esc(h.email)})</span></label>`).join("<br>")}</div>
     <label for="sCc">Cc <span class="muted small">(optional, comma-separated e-mail addresses of editorial staff)</span></label><input id="sCc" type="text">
     <label for="sSubj">Subject</label><input id="sSubj" type="text" value="${esc(j.subject)}">
-    <label for="sMsg">Message</label><textarea id="sMsg" style="min-height:280px">${esc(greeting)}</textarea>
+    ${calPanelOn() ? `<div class="cols"><div>` : ""}<label for="sMsg">Message</label><textarea id="sMsg" style="min-height:280px">${esc(greeting)}</textarea>${calPanelOn() ? `</div><div style="padding-top:20px">${calPanelHtml()}</div></div>` : ""}
     <label for="sFile">Attachment <span class="muted small">(optional, under 5 MB)</span></label><input id="sFile" type="file">
     <div><label class="inline"><input type="checkbox" id="sEyes"> Archive for my eyes only</label>
       <label class="inline"><input type="checkbox" id="sNoCopy"> Do not send me a copy</label></div>
     <div id="sDone"></div><div class="err" id="dErr"></div>`,
     `<button id="dClose">Close</button><button class="primary" id="dNext">Send…</button>`);
   $("dClose").onclick = () => dlg.close();
+  if (calPanelOn()) { dlg.classList.add("wide"); wireCalPanel(["sSubj", "sMsg"]); }
   const m = $("sMsg");
   m.focus();
   m.setSelectionRange(greeting.indexOf("\n\n") + 2, greeting.indexOf("\n\n") + 2);
@@ -1297,7 +1439,7 @@ async function autoForm(pid) {
         <input type="text" class="num" id="aDays" value="${(ex ? ex.no_answer_days : D.no_answer_days) || 7}"> days</label>
     </div>
     <div class="row">
-      <label class="inline">Review deadline <input type="date" id="aDue" style="width:auto"> <span class="muted small">(Invite now only; empty: PaperPlaza's default)</span></label>
+      <label class="inline">Review deadline ${dateField("aDue", { empty: "PaperPlaza's default", min: plus(today(), 1), quick: [14, 21, 28] })} <span class="muted small">(Invite now only)</span></label>
       <label class="inline"><input type="checkbox" id="aAttach" ${(ex ? ex.invite && ex.invite.attach : D.attach) ? "checked" : ""}> Attach the manuscript</label>
       <label class="inline"><input type="checkbox" id="aCopy" ${(ex ? ex.invite && ex.invite.copy : D.copy) ? "checked" : ""}> Send me a copy</label>
     </div>
@@ -1644,7 +1786,9 @@ async function settingsForm(tab, msg) {
       <label for="mCc">Cc</label><input id="mCc" type="text" value="${esc(c.message_defaults.cc || "")}" placeholder="none">
       <div class="row"><label class="inline"><input type="checkbox" id="mCopy" ${ck(c.message_defaults.copy_me)}> Send me a copy</label>
         <label class="inline"><input type="checkbox" id="mNoArch" ${ck(c.message_defaults.do_not_archive)}> Do not archive</label>
-        <label class="inline"><input type="checkbox" id="mEyes" ${ck(c.message_defaults.my_eyes_only)}> For my eyes only</label></div>`,
+        <label class="inline"><input type="checkbox" id="mEyes" ${ck(c.message_defaults.my_eyes_only)}> For my eyes only</label></div>
+      <h3>Calendar</h3>
+      <label class="inline"><input type="checkbox" id="mCalSet" ${ck(c.message_defaults.calendar !== false)}> Show a calendar beside messages, to look up dates and insert them</label>`,
     accounts: `
       <h3>Logins</h3>
       ${(S.sites || []).map((x) => `<div class="row"><span style="min-width:260px">${esc(x.name)} <span class="muted small">${esc(x.host)}</span></span>
@@ -1679,7 +1823,7 @@ async function settingsForm(tab, msg) {
       table: { filter: $("sFilter").value, include_all: $("sAll").checked },
       automation: { paused: $("sPaused").checked, every_minutes: num("sEvery"), hours: $("sHours").checked ? [num("sFrom"), num("sTo")] : null, weekdays_only: $("sWeek").checked },
       invite_defaults: { needed: num("iNeeded"), at_once: num("iAtOnce"), no_answer_days: $("iNoAns").checked ? num("iDays") : 0, attach: $("iAttach").checked, copy: $("iCopy").checked },
-      message_defaults: { cc: $("mCc").value.trim(), copy_me: $("mCopy").checked, do_not_archive: $("mNoArch").checked, my_eyes_only: $("mEyes").checked },
+      message_defaults: { cc: $("mCc").value.trim(), copy_me: $("mCopy").checked, do_not_archive: $("mNoArch").checked, my_eyes_only: $("mEyes").checked, calendar: $("mCalSet").checked },
       auto_login: $("aAuto").checked, viewer: $("aViewer").checked,
     },
     login: $("sLogin").checked,
@@ -1826,7 +1970,7 @@ function menuCommand(action, arg) {
     return;
   }
   if (dlg.open && !["show", "pause-all"].includes(action) && !(NATIVE && action === "settings")) return say(`Close “${$("dlgHead").textContent}” first.`);
-  if (!S.logged_in && !["show", "settings-export", "settings-import", "templates", "settings", "pause-all"].includes(action)) return say("Log in first.");
+  if (!S.logged_in && !["show", "settings-export", "settings-import", "templates", "settings", "pause-all", "calendar"].includes(action)) return say("Log in first.");
   const editorOnly = () => { if (!S.role || mode !== "editor") { say("Open the Associate Editor role of a journal first."); return true; } return false; };
   const run = {
     show: () => {},
@@ -1839,6 +1983,7 @@ function menuCommand(action, arg) {
     unfold: () => { folded.clear(); saveFolded(); render(); },
     csv: () => $("btnCsv").click(),
     templates: () => templatesForm(),
+    calendar: () => calendarWindow(),
     message: () => editorOnly() || messageWindow(),
     extend: () => editorOnly() || extendForm(),
     cancel: () => editorOnly() || cancelForm(),
@@ -1868,6 +2013,343 @@ function menuCommand(action, arg) {
   if (run) Promise.resolve(run()).catch((e) => say(e.message));
 }
 
+// ------------------------------------------- Calendar: deadlines and the user's own events
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const at = (s) => new Date(s + "T12:00:00");
+const plus = (s, n) => { const d = at(s); d.setDate(d.getDate() + n); return ymd(d); };
+const today = () => ymd(new Date());
+const between = (a, b) => Math.round((at(b) - at(a)) / 864e5);
+const wday = (s) => WDAYS[(at(s).getDay() + 6) % 7];
+const longDate = (s) => { const d = at(s); return `${wday(s)} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+const shortDate = (s) => { const d = at(s); return `${wday(s).slice(0, 3)} ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`; };
+const fromNow = (s) => { const n = between(today(), s); return n === 0 ? "today" : n === 1 ? "tomorrow" : n === -1 ? "yesterday" : n > 0 ? `in ${n} days` : `${-n} days ago`; };
+// "February 22, 2027" (the workspace's decision deadline) → "2027-02-22".
+const siteDate = (s) => { const m = /([A-Z][a-z]+) (\d{1,2}), (\d{4})/.exec(s || ""); const i = m ? MONTHS.indexOf(m[1]) : -1; return i < 0 ? "" : ymd(new Date(+m[3], i, +m[2], 12)); };
+function isoWeek(s) {
+  const t = at(s); t.setDate(t.getDate() + 3 - (t.getDay() + 6) % 7);
+  const w1 = new Date(t.getFullYear(), 0, 4, 12);
+  return 1 + Math.round(((t - w1) / 864e5 - 3 + (w1.getDay() + 6) % 7) / 7);
+}
+// The Monday on or before the 1st of `month` ("YYYY-MM"): six weeks from there fill a month grid.
+const gridStart = (month) => { const f = month + "-01"; return plus(f, -((at(f).getDay() + 6) % 7)); };
+const monthPlus = (month, n) => { const [y, m] = month.split("-").map(Number); return ymd(new Date(y, m - 1 + n, 1, 12)).slice(0, 7); };
+const ICON_CAL = `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><rect x="1.5" y="2.5" width="13" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 6.5h13M5 1v3M11 1v3" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>`;
+
+// What the calendars show (kept in this browser).
+let calLayers = { mine: true, reviews: true, decisions: true };
+try { calLayers = { ...calLayers, ...JSON.parse(localStorage.getItem("docket.calendar.layers") || "{}") }; } catch { /* defaults */ }
+const saveLayers = () => { try { localStorage.setItem("docket.calendar.layers", JSON.stringify(calLayers)); } catch { /* not kept */ } };
+
+// Docket's deadlines by day: open reviews of the current versions, and the papers' decisions.
+function deadlinesByDay() {
+  const by = new Map();
+  const add = (day, x) => { if (!day) return; if (!by.has(day)) by.set(day, []); by.get(day).push(x); };
+  if (mode === "reviewer") {
+    if (calLayers.reviews) for (const a of assignments) if (a.due && isOpen(a)) add(a.due, { kind: "review", text: `${a.number} · your review`, about: a.title, over: a.overdue, aid: a.review_id });
+    return by;
+  }
+  if (calLayers.reviews) for (const r of reviews) {
+    const p = papers.find((x) => x.id === r.paper_id);
+    if (!r.due || !isOpen(r) || !p || !isCurrentRound(r, p)) continue;
+    add(r.due, { kind: "review", text: `${p.number} · ${r.reviewer}${/^confirm/i.test(r.state) ? "" : ` (${r.state.toLowerCase()})`}`, about: p.title, over: r.overdue, pid: p.id });
+  }
+  if (calLayers.decisions) for (const p of papers) add(siteDate(p.next_due), { kind: "decision", text: `${p.number} · decision due`, about: p.title, pid: p.id });
+  return by;
+}
+
+// The user's own events (Calendar app), read on this Mac, kept two minutes.
+let calStatus = "";
+const calCache = new Map();
+function eventsBetween(from, to) {
+  const key = from + "|" + to, hit = calCache.get(key);
+  if (hit && Date.now() - hit.t < 120000) return hit.p;
+  const p = api("calendar", { from, to }).then((j) => { calStatus = j.status; return j.events || []; }).catch(() => []);
+  calCache.set(key, { t: Date.now(), p });
+  return p;
+}
+function eventsByDay(list) {
+  const by = new Map();
+  for (const e of list) {
+    const a = e.start.slice(0, 10);
+    let z = e.end.slice(0, 10);
+    if (z > a && e.end.slice(11) === "00:00") z = plus(z, -1);
+    for (let d = a, i = 0; d <= z && i < 62; d = plus(d, 1), i++) { if (!by.has(d)) by.set(d, []); by.get(d).push(e); }
+  }
+  return by;
+}
+const evTime = (e, d) => e.all_day ? "all day" : e.start.slice(0, 10) === d ? `${e.start.slice(11)}–${e.end.slice(0, 10) === d ? e.end.slice(11) : "…"}` : e.end.slice(0, 10) === d ? `…–${e.end.slice(11)}` : "all day";
+// Ask macOS once for the calendar, then wait for the answer.
+async function askCalendar(redraw) {
+  try { calStatus = (await api("calendar", { ask: true })).status; } catch (e) { return say(e.message); }
+  for (let i = 0; i < 180 && calStatus === "asking"; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try { calStatus = (await api("calendar")).status; } catch { break; }
+  }
+  calCache.clear(); redraw();
+}
+function accessNote(small) {
+  if (calStatus === "ask") return `<div class="small muted cal-access">${small ? "" : "Your own events (from the Calendar app) can show here too. "}<button type="button" class="link small" data-calask>${small ? "Show my calendar's events too…" : "Allow access to my calendar…"}</button></div>`;
+  if (calStatus === "asking") return `<div class="small muted cal-access">Answer macOS's question about the calendar…</div>`;
+  if (calStatus === "denied") return `<div class="small muted cal-access">Docket may not read your calendar. To show your events, allow it in System Settings → Privacy &amp; Security → Calendars${small ? "" : ", then close this window and open it again"}.</div>`;
+  if (calStatus === "unavailable" && !small) return `<div class="small muted cal-access">Your own events show in Docket.app (not when Docket runs from a terminal).</div>`;
+  return "";
+}
+// One day's deadlines and events, for the side list and the small calendars.
+function dayList(d, dl, ev, compact) {
+  const dls = dl.get(d) || [], evs = ev.get(d) || [];
+  let h = `<div class="day-head"><strong>${esc(compact ? shortDate(d) : longDate(d))}</strong> <span class="muted small">· ${fromNow(d)} · week ${isoWeek(d)}</span></div>`;
+  for (const x of dls) h += `<div class="ag"><i class="mk ${x.kind}${x.over ? " over" : ""}"></i>${x.pid || x.aid ? `<button type="button" class="link" data-cpid="${esc(x.pid || "")}" data-caid="${esc(x.aid || "")}" title="${esc(x.about)}">${esc(x.text)}</button>` : esc(x.text)}${x.over ? ` <span class="overdue small">overdue</span>` : ""}</div>`;
+  for (const e of evs) h += `<div class="ag"><i style="background:${esc(e.color)}"></i><span class="muted small nowrap">${esc(evTime(e, d))}</span> ${esc(e.title)}${compact ? "" : `<div class="muted small">${esc(e.calendar)}${e.location ? " · " + esc(e.location) : ""}</div>`}</div>`;
+  if (!dls.length && !evs.length) h += `<div class="muted small">${calLayers.mine && calStatus === "granted" ? "Nothing on this day." : "No deadline on this day."}</div>`;
+  return h;
+}
+function wireDayLinks(box) {
+  for (const b of box.querySelectorAll("[data-cpid], [data-caid]")) b.onclick = (e) => { e.stopPropagation(); if (b.dataset.cpid) paperWindow(b.dataset.cpid); else if (b.dataset.caid) assignmentDetails(b.dataset.caid); };
+}
+
+// ---- A: the calendar window
+let calRedraw = null;
+function calendarWindow() { popOut("calendar", {}, "Calendar", [1180, 820], () => calendarForm()); }
+async function calendarForm() {
+  let sel = today(), month = sel.slice(0, 7), ev = new Map(), seq = 0, wheel = 0;
+  const editor = mode !== "reviewer";
+  openDialog("Calendar", `
+    <div class="row cal-top">
+      <button id="cPrev" title="Previous month (Page Up)">‹</button><strong id="cTitle" class="cal-title"></strong><button id="cNext" title="Next month (Page Down)">›</button>
+      <button id="cToday" title="Today (T)">Today</button>
+      <span class="spacer"></span>
+      <label class="inline"><input type="checkbox" data-layer="mine"> My calendar</label>
+      <label class="inline"><input type="checkbox" data-layer="reviews"> ${editor ? "Review deadlines" : "My reviews due"}</label>
+      ${editor ? `<label class="inline"><input type="checkbox" data-layer="decisions"> Decision deadlines</label>` : ""}
+    </div>
+    <div id="cAccess"></div>
+    <div class="cal-main"><div id="cGrid" class="cal-grid" tabindex="0"></div><div id="cDay" class="cal-day"></div></div>
+    <div class="muted small" style="margin-top:6px">Arrow keys: day and week · Page Up/Down or scrolling: month · T: today · Click a deadline to open its paper.</div>`,
+    `<button id="dClose">Close</button>`);
+  dlg.classList.add("wide");
+  $("dClose").onclick = () => dlg.close();
+  for (const b of document.querySelectorAll("[data-layer]")) {
+    b.checked = !!calLayers[b.dataset.layer];
+    b.onchange = () => { calLayers[b.dataset.layer] = b.checked; saveLayers(); load(); };
+  }
+  async function load() {
+    const mine = ++seq, s = gridStart(month);
+    draw();
+    const list = calLayers.mine ? await eventsBetween(s, plus(s, 41)) : [];
+    if (mine !== seq) return;
+    ev = eventsByDay(calLayers.mine ? list : []);
+    draw();
+  }
+  function draw() {
+    if (!$("cGrid")) return;
+    const s = gridStart(month), dl = deadlinesByDay(), now = today();
+    $("cTitle").textContent = `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+    let h = `<div class="h wk">Wk</div>${WDAYS.map((w) => `<div class="h">${w.slice(0, 3)}</div>`).join("")}`;
+    for (let w = 0; w < 6; w++) {
+      const mon = plus(s, 7 * w);
+      h += `<div class="wk">${isoWeek(mon)}</div>`;
+      for (let i = 0; i < 7; i++) {
+        const d = plus(mon, i), dls = dl.get(d) || [], evs = ev.get(d) || [];
+        const items = [...dls.map((x) => `<div class="it dl ${x.kind}${x.over ? " over" : ""}">${esc(x.text)}</div>`),
+          ...evs.map((e) => `<div class="it"><i style="background:${esc(e.color)}"></i>${e.all_day ? "" : `<span class="muted">${esc(e.start.slice(0, 10) === d ? e.start.slice(11) : "")}</span> `}${esc(e.title)}</div>`)];
+        const room = 4, more = items.length > room ? items.length - (room - 1) : 0;
+        h += `<div class="c${d.slice(0, 7) !== month ? " out" : ""}${i > 4 ? " we" : ""}${d === now ? " today" : ""}${d === sel ? " sel" : ""}" data-day="${d}">
+          <div class="dn"><span>${at(d).getDate()}</span></div>${(more ? items.slice(0, room - 1) : items).join("")}${more ? `<div class="it muted">+${more} more</div>` : ""}</div>`;
+      }
+    }
+    $("cGrid").innerHTML = h;
+    for (const c of $("cGrid").querySelectorAll("[data-day]")) c.onclick = () => go(c.dataset.day);
+    $("cDay").innerHTML = dayList(sel, dl, ev, false);
+    wireDayLinks($("cDay"));
+    $("cAccess").innerHTML = calLayers.mine ? accessNote(false) : "";
+    const a = $("cAccess").querySelector("[data-calask]");
+    if (a) a.onclick = () => askCalendar(load).then(draw);
+  }
+  function go(d) {
+    sel = d;
+    if (d.slice(0, 7) !== month) { month = d.slice(0, 7); load(); } else draw();
+  }
+  const byMonth = (n) => {
+    const m = monthPlus(sel.slice(0, 7), n), last = new Date(Number(m.slice(0, 4)), Number(m.slice(5)), 0).getDate();
+    go(`${m}-${String(Math.min(Number(sel.slice(8)), last)).padStart(2, "0")}`);
+  };
+  $("cPrev").onclick = () => byMonth(-1);
+  $("cNext").onclick = () => byMonth(1);
+  $("cToday").onclick = () => go(today());
+  $("cGrid").onkeydown = (e) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (step) { e.preventDefault(); go(plus(sel, step)); }
+    else if (e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); byMonth(e.key === "PageUp" ? -1 : 1); }
+    else if (e.key === "t" || e.key === "T") { e.preventDefault(); go(today()); }
+  };
+  $("cGrid").onwheel = (e) => {
+    e.preventDefault();
+    wheel += e.deltaY;
+    if (Math.abs(wheel) > 80) { byMonth(wheel > 0 ? 1 : -1); wheel = 0; }
+  };
+  calRedraw = draw;
+  dlg.addEventListener("close", () => { calRedraw = null; }, { once: true });
+  await load();
+  $("cGrid").focus();
+}
+
+// ---- The small calendar of the date fields, the extension dialog and the message window.
+// o: value, min, allowed (Set of days), quick (days from today), empty (label of "no date"),
+// pick(day) (chosen), insert(day) (message window), label(day) (the date as inserted).
+function miniCal(box, o) {
+  let focus = o.value || (o.allowed ? [...o.allowed].sort()[0] : "") || today();
+  let month = focus.slice(0, 7), ev = new Map(), seq = 0;
+  const ok = (d) => (!o.min || d >= o.min) && (!o.max || d <= o.max) && (!o.allowed || o.allowed.has(d));
+  async function load() {
+    const mine = ++seq, s = gridStart(month);
+    draw();
+    if (!calLayers.mine) return;
+    const list = await eventsBetween(s, plus(s, 41));
+    if (mine === seq) { ev = eventsByDay(list); draw(); }
+  }
+  function info(d) {
+    const el = box.querySelector(".mc-info");
+    if (!el) return;
+    el.innerHTML = dayList(d, deadlinesByDay(), ev, true) + (o.insert ? `<button type="button" class="link small" data-ins="${d}">Insert “${esc(o.label(d))}”</button>` : "");
+    wireDayLinks(el);
+    const b = el.querySelector("[data-ins]");
+    if (b) b.onclick = () => o.insert(b.dataset.ins);
+  }
+  function draw() {
+    const s = gridStart(month), dl = deadlinesByDay(), now = today();
+    let h = `<div class="mc-head"><button type="button" data-mc="-1" title="Previous month">‹</button><strong>${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}</strong><button type="button" data-mc="1" title="Next month">›</button></div>
+      <div class="mc-grid" tabindex="0"><span class="h">Wk</span>${WDAYS.map((w) => `<span class="h">${w.slice(0, 2)}</span>`).join("")}`;
+    for (let w = 0; w < 6; w++) {
+      const mon = plus(s, 7 * w);
+      h += `<span class="wk">${isoWeek(mon)}</span>`;
+      for (let i = 0; i < 7; i++) {
+        const d = plus(mon, i), k = dl.get(d) || [], e = ev.get(d) || [];
+        const cls = [d.slice(0, 7) !== month ? "out" : "", d === now ? "today" : "", d === o.value ? "on" : "", d === focus ? "focus" : "", i > 4 ? "we" : ""].filter(Boolean).join(" ");
+        const tip = [...k.map((x) => x.text), ...e.map((x) => `${evTime(x, d)} ${x.title}`)].join("\n");
+        h += `<button type="button" class="d ${cls}" data-d="${d}" ${ok(d) ? "" : "disabled"} title="${esc(tip)}">${at(d).getDate()}<span class="dots">${k.length ? `<i class="mk ${k.some((x) => x.kind === "review") ? "review" : "decision"}"></i>` : ""}${e.slice(0, 3).map((x) => `<i style="background:${esc(x.color)}"></i>`).join("")}</span></button>`;
+      }
+    }
+    h += `</div>`;
+    if (o.quick || o.empty) h += `<div class="mc-quick">${(o.quick || []).map((n) => { const d = plus(now, n); return `<button type="button" data-d="${d}" ${ok(d) ? "" : "disabled"}>${n % 7 ? `+${n} days` : `+${n / 7} weeks`} · ${esc(shortDate(d).slice(0, -5))}</button>`; }).join("")}${o.empty ? `<button type="button" data-clear>${esc(o.empty)}</button>` : ""}</div>`;
+    h += `<div class="mc-info"></div>${calLayers.mine ? accessNote(true) : ""}`;
+    box.innerHTML = h;
+    info(focus);
+    for (const b of box.querySelectorAll("[data-mc]")) b.onclick = () => { month = monthPlus(month, Number(b.dataset.mc)); load(); };
+    for (const b of box.querySelectorAll("button[data-d]")) {
+      b.onclick = () => choose(b.dataset.d);
+      if (b.classList.contains("d")) { b.onmouseenter = () => info(b.dataset.d); b.ondblclick = () => o.insert && o.insert(b.dataset.d); }
+    }
+    const g = box.querySelector(".mc-grid");
+    g.onmouseleave = () => info(focus);
+    g.onkeydown = (e) => {
+      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+      if (step) { e.preventDefault(); move(plus(focus, step)); }
+      else if (e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); move(plus(focus, e.key === "PageUp" ? -28 : 28)); }
+      else if (e.key === "Enter" && ok(focus)) { e.preventDefault(); choose(focus); }
+    };
+    const c = box.querySelector("[data-clear]");
+    if (c) c.onclick = () => o.pick("");
+    const a = box.querySelector("[data-calask]");
+    if (a) a.onclick = () => askCalendar(load);
+  }
+  function move(d) {
+    focus = d;
+    if (d.slice(0, 7) !== month) { month = d.slice(0, 7); load(); } else draw();
+    const g = box.querySelector(".mc-grid"); if (g) g.focus();
+  }
+  function choose(d) {
+    if (!ok(d)) return;
+    focus = d;
+    if (o.pick) return o.pick(d);
+    o.value = d;
+    if (d.slice(0, 7) !== month) { month = d.slice(0, 7); load(); return; }
+    // Not drawn again, so that a double click lands on the same button.
+    for (const b of box.querySelectorAll("button.d")) { b.classList.toggle("on", b.dataset.d === d); b.classList.toggle("focus", b.dataset.d === d); }
+    info(d);
+  }
+  load();
+  return { redraw: draw, set(v) { o.value = v; focus = v || focus; if (focus.slice(0, 7) !== month) { month = focus.slice(0, 7); load(); } else draw(); } };
+}
+
+// ---- B: date fields. dateField() is a button that shows the date and opens a small
+// calendar; the date itself ("YYYY-MM-DD" or "") is in the hidden input `id`.
+function dateField(id, { value = "", empty = "No date", min = "", quick = [] } = {}) {
+  return `<span class="datef"><input type="hidden" id="${id}" value="${esc(value)}"><button type="button" class="datebtn" data-datef="${id}" data-empty="${esc(empty)}" data-min="${esc(min)}" data-quick="${quick.join(",")}"></button></span>`;
+}
+function dateLabel(b) {
+  const v = $(b.dataset.datef).value;
+  b.innerHTML = `${ICON_CAL}${v ? `<span>${esc(shortDate(v))}</span><span class="muted small">${fromNow(v)}</span>` : `<span class="muted">${esc(b.dataset.empty)}</span>`}`;
+}
+new MutationObserver(() => {
+  for (const b of document.querySelectorAll("button[data-datef]:not([data-ready])")) { b.dataset.ready = "1"; dateLabel(b); }
+}).observe(document.body, { childList: true, subtree: true });
+let datePop = null, datePopEsc = 0;
+function closeDatePop() { if (datePop) { datePop.remove(); datePop = null; } }
+function openDatePop(b) {
+  closeDatePop();
+  const input = $(b.dataset.datef);
+  const pop = datePop = document.createElement("div");
+  pop.className = "datepop"; pop.dataset.for = b.dataset.datef;
+  (b.closest("dialog") || document.body).appendChild(pop);
+  const place = () => {
+    const r = b.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+    pop.style.top = `${r.bottom + 6 + h > innerHeight - 8 && r.top - 6 - h > 8 ? r.top - 6 - h : Math.max(8, Math.min(r.bottom + 6, innerHeight - h - 8))}px`;
+  };
+  miniCal(pop, {
+    value: input.value, min: b.dataset.min, empty: b.dataset.empty,
+    quick: (b.dataset.quick || "").split(",").filter(Boolean).map(Number),
+    pick: (d) => { input.value = d; dateLabel(b); input.dispatchEvent(new Event("change")); closeDatePop(); b.focus(); },
+  });
+  place();
+  new ResizeObserver(place).observe(pop);
+  const g = pop.querySelector(".mc-grid"); if (g) g.focus();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("button[data-datef]");
+  if (b) { e.preventDefault(); if (datePop && datePop.dataset.for === b.dataset.datef) closeDatePop(); else openDatePop(b); return; }
+  if (datePop && !e.composedPath().includes(datePop)) closeDatePop();
+});
+document.addEventListener("keydown", (e) => { if (datePop && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeDatePop(); datePopEsc = Date.now(); } }, true);
+dlg.addEventListener("cancel", (e) => { if (Date.now() - datePopEsc < 500) e.preventDefault(); });
+dlg.addEventListener("close", closeDatePop);
+
+// ---- C: the calendar beside a message (Settings → Messages), to look up dates and insert them.
+const DATE_FORMATS = {
+  long: { name: "Monday 14 December 2026", f: (s) => longDate(s) },
+  dmy: { name: "14 December 2026", f: (s) => longDate(s).replace(/^\S+ /, "") },
+  us: { name: "Monday, December 14, 2026", f: (s) => { const d = at(s); return `${wday(s)}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; } },
+  iso: { name: "2026-12-14", f: (s) => s },
+};
+const calPanelOn = () => !prefs().message_defaults || prefs().message_defaults.calendar !== false;
+function calPanelHtml() {
+  return `<div class="note calpanel"><div class="row small" style="margin:0 0 6px"><strong>Calendar</strong><span class="spacer"></span>
+    <label class="inline small" style="margin:0">Insert as <select id="cpFmt" style="width:auto; padding:2px 6px">${Object.entries(DATE_FORMATS).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("")}</select></label></div>
+    <div id="cpCal"></div><div class="muted small" style="margin-top:4px">Double-click a day to insert it where the cursor is.</div></div>`;
+}
+function wireCalPanel(fields) {
+  if (!$("cpCal")) return;
+  let last = fields[fields.length - 1];
+  for (const id of fields) $(id).addEventListener("focus", () => { last = id; });
+  const sel = $("cpFmt");
+  try { sel.value = localStorage.getItem("docket.dateFormat") || "long"; } catch { sel.value = "long"; }
+  if (!DATE_FORMATS[sel.value]) sel.value = "long";
+  const label = (d) => DATE_FORMATS[sel.value].f(d);
+  const cal = miniCal($("cpCal"), {
+    value: today(), label,
+    insert: (d) => {
+      const el = $(last), t = label(d);
+      const [a, z] = [el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length];
+      el.value = el.value.slice(0, a) + t + el.value.slice(z);
+      el.focus(); el.selectionStart = el.selectionEnd = a + t.length;
+      el.dispatchEvent(new Event("input"));
+    },
+  });
+  sel.onchange = () => { try { localStorage.setItem("docket.dateFormat", sel.value); } catch { /* not kept */ } cal.redraw(); };
+}
+
 // A window of the app showing one dialog: its content comes from what the
 // main window loaded (nothing is read again from PaperPlaza).
 async function bootView() {
@@ -1894,6 +2376,7 @@ async function bootView() {
     staff: () => staffForm(PARAMS.get("paper")),
     settings: () => settingsForm(PARAMS.get("tab") || ""),
     site: () => siteForm(PARAMS.get("kind"), ids),
+    calendar: () => calendarForm(),
   }[VIEW];
   if (open) await open();
   if (!dlg.open) {

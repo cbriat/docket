@@ -6,6 +6,7 @@ use crate::http::{Download, Fetched, Http};
 use crate::model::*;
 use crate::page::{Page, cells, commands_in, element_text, find_table, sel};
 use anyhow::{Context, Result, anyhow, bail};
+use chrono::NaiveDate;
 use regex::Regex;
 use scraper::ElementRef;
 use std::path::PathBuf;
@@ -49,6 +50,30 @@ fn portal_of(site: &str) -> String {
 }
 
 pub const EXTENSIONS: [u32; 7] = [1, 3, 7, 10, 14, 21, 28];
+
+/// The fewest extensions the site offers that add up to `days`, largest
+/// first (18 → 14 + 3 + 1). Empty for 0 or less.
+pub fn extension_steps(days: i64) -> Vec<u32> {
+    let n = days.max(0) as usize;
+    // best[d] = (steps, first step) for d days.
+    let mut best: Vec<(usize, u32)> = vec![(0, 0); n + 1];
+    for d in 1..=n {
+        best[d] = EXTENSIONS
+            .iter()
+            .rev()
+            .filter(|&&e| e as usize <= d)
+            .map(|&e| (best[d - e as usize].0 + 1, e))
+            .min_by_key(|&(k, _)| k)
+            .unwrap_or((usize::MAX, 0));
+    }
+    let (mut out, mut d) = (Vec::new(), n);
+    while d > 0 {
+        out.push(best[d].1);
+        d -= best[d].1 as usize;
+    }
+    out.sort_unstable_by(|a, b| b.cmp(a));
+    out
+}
 
 /// The server returned a login form: the 60-minute session timed out.
 #[derive(Debug)]
@@ -1133,6 +1158,12 @@ impl Session {
 
     /// Extend the review deadline by `days`, as the "Extend the deadline" box does.
     pub fn extend_deadline(&mut self, r: &Review, days: u32) -> Result<String> {
+        let due = self.extend_once(r, days)?;
+        Ok(format!("New due date: {due}"))
+    }
+
+    /// One extension; returns the new due date as the site writes it.
+    fn extend_once(&mut self, r: &Review, days: u32) -> Result<String> {
         if !EXTENSIONS.contains(&days) {
             bail!("the site only offers extensions of {EXTENSIONS:?} days");
         }
@@ -1150,8 +1181,44 @@ impl Session {
             bail!("{}", if text.is_empty() { "empty answer from the server" } else { text });
         }
         let due = text.split('&').nth(1).unwrap_or(text);
-        Ok(format!("New due date: {}", strip_tags(due)))
+        Ok(strip_tags(due).trim().to_string())
     }
+
+    /// Move the deadline to `until` with several extensions in a row, as the
+    /// site's box allows ("Click again for a further extension"). Each step
+    /// is chosen from the date the site answered, so the result is checked.
+    pub fn extend_until(&mut self, r: &Review, until: NaiveDate) -> Result<String> {
+        let start = r.due.context("the current due date is not known; reload the list")?;
+        let mut due = start;
+        let mut done: Vec<u32> = Vec::new();
+        while due < until {
+            if done.len() >= 12 {
+                bail!("stopped after 12 extensions; the deadline is now {}", long(due));
+            }
+            let step = extension_steps((until - due).num_days())[0];
+            let answer = self.extend_once(r, step).map_err(|e| {
+                if done.is_empty() { e } else { anyhow!("{e:#}; the deadline had already been moved to {} ({})", long(due), plus_list(&done)) }
+            })?;
+            let new = parse_date(&answer).with_context(|| format!("PaperPlaza answered '{answer}' after {} days; stopped there", plus_list(&[step])))?;
+            if new <= due {
+                let before = if done.is_empty() { String::new() } else { format!(" (it had moved from {} by {} days)", long(start), plus_list(&done)) };
+                bail!("PaperPlaza kept the deadline at {} after an extension of {step} days; stopped there{before}", long(new));
+            }
+            done.push(step);
+            due = new;
+        }
+        let how = if done.len() > 1 { format!(" ({} days)", plus_list(&done)) } else { String::new() };
+        let off = if due != until { format!("; you asked for {}", long(until)) } else { String::new() };
+        Ok(format!("New due date: {}{how}{off}", long(due)))
+    }
+}
+
+fn long(d: NaiveDate) -> String {
+    d.format("%B %-d, %Y").to_string()
+}
+
+fn plus_list(steps: &[u32]) -> String {
+    steps.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(" + ")
 }
 
 // ---------------------------------------------------------------------------
@@ -1859,4 +1926,25 @@ pub fn server_message(page: &Page) -> Option<String> {
     let t = page.text();
     let rx = Regex::new(r"(?i)[^.!?]*\b(incorrect|invalid|not recognized|wrong|error|failed|denied|not allowed|successfully|has been sent|was sent)\b[^.!?]*[.!?]?").unwrap();
     rx.find(&t).map(|m| m.as_str().trim().chars().take(300).collect())
+}
+
+#[cfg(test)]
+mod extension_tests {
+    use super::extension_steps;
+
+    #[test]
+    fn fewest_extensions() {
+        assert_eq!(extension_steps(18), vec![14, 3, 1]);
+        assert_eq!(extension_steps(17), vec![14, 3]);
+        assert_eq!(extension_steps(28), vec![28]);
+        assert_eq!(extension_steps(2), vec![1, 1]);
+        assert_eq!(extension_steps(19).len(), 4);
+        assert_eq!(extension_steps(0), Vec::<u32>::new());
+        assert_eq!(extension_steps(-4), Vec::<u32>::new());
+        for d in 1..=120 {
+            let s = extension_steps(d);
+            assert_eq!(s.iter().map(|&x| x as i64).sum::<i64>(), d);
+            assert!(s.len() <= (d as usize).div_ceil(28) + 3, "{d}: {s:?}");
+        }
+    }
 }

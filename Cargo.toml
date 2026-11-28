@@ -30,6 +30,8 @@ tao = "0.37.2"
 muda = "0.21.2"
 tray-icon = { version = "0.26.1", default-features = false }
 objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL", "NSGeometry"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSView", "NSResponder", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL", "NSGeometry", "NSDate", "NSArray", "NSBundle", "NSDictionary", "NSError"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSView", "NSResponder", "NSColor", "NSColorSpace", "objc2-core-foundation"] }
 objc2-pdf-kit = { version = "0.3.2", default-features = false, features = ["std", "PDFView", "PDFDocument", "objc2-app-kit"] }
+objc2-event-kit = { version = "0.3.2", default-features = false, features = ["std", "EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "objc2-app-kit", "block2"] }
+block2 = "0.6.2"

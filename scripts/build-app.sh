@@ -27,6 +27,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Docket shows your calendar events next to review and decision deadlines. It only reads them, on this Mac.</string>
+  <key>NSCalendarsUsageDescription</key><string>Docket shows your calendar events next to review and decision deadlines. It only reads them, on this Mac.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>
 </plist>

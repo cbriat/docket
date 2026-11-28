@@ -5,7 +5,7 @@
 use crate::creds;
 use crate::http::Download;
 use crate::model::{Assignment, Candidate, InviteOptions, Paper, PaperInfo, Review, ReviewDates, RoleKind};
-use crate::papercept::{ContactOptions, EXTENSIONS, SITES, Session, same_id};
+use crate::papercept::{ContactOptions, EXTENSIONS, SITES, Session, extension_steps, same_id};
 use crate::scheduler::{self, State, Store};
 use crate::templates::{self, Templates};
 use crate::notes::{Kind, Notes, Repeat, ThanksSettings};
@@ -70,6 +70,8 @@ enum Act {
     Contact { cc: String, opts: ContactOptions, attachment: Option<(String, Vec<u8>)> },
     Cancel,
     Extend { days: u32 },
+    /// Several extensions in a row, up to this date.
+    ExtendTo { until: chrono::NaiveDate },
 }
 
 struct PlanItem {
@@ -77,6 +79,8 @@ struct PlanItem {
     subject: String,
     message: String,
     skip: Option<String>,
+    /// What will happen, shown in the preview ("October 6 → October 24, 2026: 14 + 3 + 1 days").
+    note: String,
 }
 
 struct Plan {
@@ -135,6 +139,8 @@ struct PlanRequest {
     cc: String,
     message: String,
     days: u32,
+    /// "YYYY-MM-DD": extend until this date instead of by `days`.
+    until: String,
     do_not_archive: bool,
     my_eyes_only: bool,
     do_not_copy_me: bool,
@@ -833,6 +839,18 @@ impl App {
                 }
                 Ok(json!({"report": report, "reviews": self.reviews, "reviews_rev": self.reviews_rev, "unthanked": self.unthanked}))
             }
+            "calendar" => {
+                // The user's own events (Calendar app) for the calendar views.
+                if input.get("ask").and_then(Value::as_bool).unwrap_or(false) {
+                    crate::calendar::request();
+                }
+                let date = |k: &str| input.get(k).and_then(Value::as_str).and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+                let events = match (date("from"), date("to")) {
+                    (Some(a), Some(b)) => crate::calendar::events(a, b)?,
+                    _ => Vec::new(),
+                };
+                Ok(json!({"status": crate::calendar::status(), "events": events}))
+            }
             "site_letters" => {
                 // PaperPlaza's letters of the open journal, as message templates (read once).
                 let session = self.session.as_mut().context("not logged in")?;
@@ -1039,6 +1057,10 @@ impl App {
                 }
             }
             "cancel" => Act::Cancel,
+            "extend" if !rq.until.is_empty() => {
+                let until = chrono::NaiveDate::parse_from_str(&rq.until, "%Y-%m-%d").context("choose the new due date")?;
+                Act::ExtendTo { until }
+            }
             "extend" => {
                 if !EXTENSIONS.contains(&rq.days) {
                     bail!("choose one of the extensions the site offers");
@@ -1059,14 +1081,28 @@ impl App {
                 _ if !r.is_open() => Some(format!("skipped: {}", r.status_raw)),
                 _ => None,
             };
-            let (mut subject, mut message) = (String::new(), String::new());
+            let (mut subject, mut message, mut note) = (String::new(), String::new(), String::new());
+            if let (Act::ExtendTo { until }, None) = (&act, &skip) {
+                let day = |d: chrono::NaiveDate| d.format("%B %-d, %Y").to_string();
+                match r.due {
+                    None => skip = Some("skipped: the current due date is not known".into()),
+                    Some(due) if due >= *until => skip = Some(format!("skipped: already due {}", day(due))),
+                    Some(due) if (*until - due).num_days() > 120 => skip = Some(format!("skipped: more than 120 days after the current due date ({})", day(due))),
+                    Some(due) => {
+                        let steps = extension_steps((*until - due).num_days());
+                        let list = steps.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(" + ");
+                        let n = steps.len();
+                        note = format!("{} → {}: {list} days ({n} extension{})", day(due), day(*until), if n == 1 { "" } else { "s" });
+                    }
+                }
+            }
             if contact {
                 match self.fill_for(&r, &rq.subject, &rq.message) {
                     Ok((s, m)) => (subject, message) = (s, m),
                     Err(e) => skip = Some(format!("{e:#}")),
                 }
             }
-            items.push(PlanItem { review: r, subject, message, skip });
+            items.push(PlanItem { review: r, subject, message, skip, note });
         }
         let id = self.next_plan;
         self.next_plan += 1;
@@ -1074,7 +1110,7 @@ impl App {
             .iter()
             .map(|i| {
                 json!({"review_id": i.review.review_id, "paper_id": i.review.paper_id, "reviewer": i.review.reviewer,
-                       "pin": i.review.pin, "status": i.review.status_raw, "subject": i.subject, "message": i.message, "skip": i.skip})
+                       "pin": i.review.pin, "status": i.review.status_raw, "subject": i.subject, "message": i.message, "skip": i.skip, "note": i.note})
             })
             .collect();
         self.plans.insert(id, Plan { act, items });
@@ -1112,6 +1148,9 @@ impl App {
                     }),
                     Act::Cancel => session.with_relogin(|s| s.cancel_review(r)),
                     Act::Extend { days } => session.with_relogin(|s| s.extend_deadline(r, *days)),
+                    // A new login is tried only before the first step: later errors are
+                    // rewritten (with the steps made), so they are not seen as an expiry.
+                    Act::ExtendTo { until } => session.with_relogin(|s| s.extend_until(r, *until)),
                 }
             };
             if !touched.contains(&r.paper_id) {
@@ -1313,6 +1352,17 @@ mod tests {
         let done = app.api("execute", json!({"plan_id": plan["plan_id"]})).unwrap();
         assert_eq!(done["results"][0]["message"], "New due date: October 13, 2026");
         assert!(app.api("plan", json!({"action": "extend", "days": 5, "review_ids": [open]})).is_err());
+        // Until a date: the replay always answers the same date, so the steps must stop.
+        let due = app.reviews.iter().find(|r| r.review_id == open).and_then(|r| r.due).unwrap();
+        let until = (due + chrono::Duration::days(18)).format("%Y-%m-%d").to_string();
+        let plan = app.api("plan", json!({"action": "extend", "until": until, "review_ids": [open]})).unwrap();
+        assert!(plan["items"][0]["note"].as_str().unwrap().contains("14 + 3 + 1 days (3 extensions)"), "{}", plan["items"][0]);
+        let done = app.api("execute", json!({"plan_id": plan["plan_id"]})).unwrap();
+        let m = done["results"][0]["message"].as_str().unwrap();
+        assert!(done["results"][0]["ok"] == true || m.contains("stopped"), "{m}");
+        let past = (due - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        let plan = app.api("plan", json!({"action": "extend", "until": past, "review_ids": [open]})).unwrap();
+        assert!(plan["items"][0]["skip"].as_str().unwrap().contains("already due"));
         let _ = std::fs::remove_dir_all(cfg);
     }
 }
